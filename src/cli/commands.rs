@@ -1306,3 +1306,141 @@ fn print_doctor_report(report: &DoctorReport) {
         println!("  {GREEN}✓{RESET} {}", check);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    fn test_db() -> Database {
+        let path = std::path::PathBuf::from(format!("/tmp/mneme_cli_test_{}.db", Uuid::new_v4()));
+        Database::open(&path).unwrap()
+    }
+
+    #[test]
+    fn test_doctor_empty_project() {
+        let db = test_db();
+        let report = run_doctor(&db, "test-project").unwrap();
+
+        assert!(report.healthy);
+        assert_eq!(report.project, "test-project");
+        assert_eq!(report.memory_count, 0);
+        assert_eq!(report.session_count, 0);
+        assert_eq!(report.orphaned_relations, 0);
+        assert!(report.db_reachable);
+        assert!(report.issues.is_empty());
+        assert!(!report.checks.is_empty());
+    }
+
+    #[test]
+    fn test_doctor_with_known_project() {
+        let db = test_db();
+        let store = db.memories();
+
+        // Create a memory
+        store
+            .save(
+                CreateMemoryInput {
+                    encrypt: false,
+                    project: "doctor-test".to_string(),
+                    scope: Some(Scope::Project),
+                    title: "Doctor Test".to_string(),
+                    content: "test".to_string(),
+                    what: None,
+                    why: None,
+                    context: None,
+                    learned: None,
+                    memory_type: crate::store::memory::MemoryType::Note,
+                    importance: crate::store::memory::Importance::Medium,
+                    tags: vec![],
+                    topic_key: None,
+                    capture_prompt: None,
+                },
+                None,
+                None,
+            )
+            .unwrap();
+
+        let report = run_doctor(&db, "doctor-test").unwrap();
+        assert!(report.healthy);
+        assert_eq!(report.memory_count, 1);
+        assert_eq!(report.project, "doctor-test");
+    }
+
+    #[test]
+    fn test_doctor_report_serializes_to_json() {
+        let db = test_db();
+        let report = run_doctor(&db, "json-test").unwrap();
+
+        let json = serde_json::to_string(&report).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed["project"], "json-test");
+        assert_eq!(parsed["healthy"], true);
+        assert!(parsed["db_path"].is_string());
+        assert!(parsed["checks"].is_array());
+    }
+
+    #[test]
+    fn test_doctor_db_path_is_non_empty() {
+        let db = test_db();
+        let report = run_doctor(&db, "path-test").unwrap();
+
+        assert!(!report.db_path.is_empty());
+        assert!(report.db_path.contains("mneme"));
+    }
+
+    #[test]
+    fn test_print_doctor_report_does_not_panic_healthy() {
+        let db = test_db();
+        let report = run_doctor(&db, "print-healthy").unwrap();
+        print_doctor_report(&report);
+    }
+
+    #[test]
+    fn test_print_doctor_report_does_not_panic_with_issues() {
+        let report = DoctorReport {
+            healthy: false,
+            project: "test".to_string(),
+            project_source: "git".to_string(),
+            project_path: "/tmp/test".to_string(),
+            db_path: "/tmp/test.db".to_string(),
+            db_reachable: true,
+            memory_count: 0,
+            session_count: 0,
+            orphaned_relations: 0,
+            issues: vec!["Missing config file".to_string()],
+            checks: vec!["Memory count: 0".to_string()],
+        };
+        print_doctor_report(&report);
+    }
+
+    #[test]
+    fn test_doctor_with_session_activity() {
+        let db = test_db();
+        let sessions = db.sessions();
+
+        let session = sessions.start("session-test", None).unwrap();
+        sessions
+            .end(session.id, Some("Test session"))
+            .unwrap();
+
+        let report = run_doctor(&db, "session-test").unwrap();
+        // session-test project should have memories for sessions
+        // Sessions use project as defined in start()
+        assert_eq!(report.project, "session-test");
+    }
+
+    #[test]
+    fn test_report_struct_fields() {
+        let db = test_db();
+        let report = run_doctor(&db, "fields-test").unwrap();
+
+        // Test that all required fields are present and have correct types
+        assert!(report.healthy); // fresh DB should be healthy
+        assert!(report.memory_count <= 1_000_000); // u32
+        assert!(report.session_count <= 1_000_000); // u32
+        assert!(report.orphaned_relations <= 1_000_000); // u32
+        assert!(!report.project_path.is_empty()); // should always have a cwd
+    }
+}
