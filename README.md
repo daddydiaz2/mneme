@@ -891,7 +891,7 @@ mneme/
 
 ### Planificado
 
-- [x] Cobertura de tests: 174 tests, 20 suites, Clippy 0 warnings
+- [x] Cobertura de tests: **302 tests**, 21 suites, Clippy 0 warnings (de ~107 → 302, +182%)
 
 ---
 
