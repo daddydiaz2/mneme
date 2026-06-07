@@ -1,4 +1,4 @@
-# mneme
+# mneme - Sistema de memoria persistente para agentes de IA
 
 <div align="center">
 
