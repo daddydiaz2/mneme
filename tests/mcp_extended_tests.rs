@@ -304,3 +304,230 @@ async fn test_mcp_list_tools_contains_expected() {
     assert!(names.contains(&"mem_graph"));
     assert!(names.contains(&"mem_health"));
 }
+
+
+#[tokio::test]
+async fn test_mcp_mem_audit_empty_project() {
+    let server = test_server();
+    let args = make_args(vec![]);
+    let request = CallToolRequestParam {
+        name: "mem_audit".into(),
+        arguments: Some(args),
+    };
+    let result = server.call_tool(request, test_context()).await.unwrap();
+    let text = result.content[0].as_text().unwrap().text.clone();
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(parsed["success"], true);
+}
+
+#[tokio::test]
+async fn test_mcp_mem_doctor() {
+    let server = test_server();
+    let args = make_args(vec![]);
+    let request = CallToolRequestParam {
+        name: "mem_doctor".into(),
+        arguments: Some(args),
+    };
+    let result = server.call_tool(request, test_context()).await.unwrap();
+    let text = result.content[0].as_text().unwrap().text.clone();
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert!(parsed["success"].as_bool().unwrap_or(false));
+}
+
+#[tokio::test]
+async fn test_mcp_mem_current_project() {
+    let server = test_server();
+    let args = make_args(vec![]);
+    let request = CallToolRequestParam {
+        name: "mem_current_project".into(),
+        arguments: Some(args),
+    };
+    let result = server.call_tool(request, test_context()).await.unwrap();
+    let text = result.content[0].as_text().unwrap().text.clone();
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert!(parsed["success"].as_bool().unwrap_or(false));
+}
+
+#[tokio::test]
+async fn test_mcp_mem_timeline_empty() {
+    let server = test_server();
+    let args = make_args(vec![]);
+    let request = CallToolRequestParam {
+        name: "mem_timeline".into(),
+        arguments: Some(args),
+    };
+    let result = server.call_tool(request, test_context()).await.unwrap();
+    let text = result.content[0].as_text().unwrap().text.clone();
+    assert!(!text.is_empty(), "timeline should return non-empty response");
+}
+
+#[tokio::test]
+async fn test_mcp_mem_suggest_topic_key() {
+    let server = test_server();
+    let mut args = make_args(vec![("title", "Test Memory")]);
+    args.insert("content".to_string(), serde_json::json!("test content"));
+    let request = CallToolRequestParam {
+        name: "mem_suggest_topic_key".into(),
+        arguments: Some(args),
+    };
+    let result = server.call_tool(request, test_context()).await.unwrap();
+    let text = result.content[0].as_text().unwrap().text.clone();
+    assert!(!text.is_empty(), "suggest_topic_key should return non-empty");
+}
+
+#[tokio::test]
+async fn test_mcp_mem_conflicts_empty() {
+    let server = test_server();
+    let args = make_args(vec![]);
+    let request = CallToolRequestParam {
+        name: "mem_conflicts".into(),
+        arguments: Some(args),
+    };
+    let result = server.call_tool(request, test_context()).await.unwrap();
+    let text = result.content[0].as_text().unwrap().text.clone();
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(parsed["success"], true);
+}
+
+#[tokio::test]
+async fn test_mcp_mem_deprecate_flow() {
+    let server = test_server();
+    let save_args = make_args(vec![("title", "To Deprecate"), ("content", "old content")]);
+    let save_req = CallToolRequestParam { name: "mem_save".into(), arguments: Some(save_args) };
+    let save_res = server.call_tool(save_req, test_context()).await.unwrap();
+    let val: serde_json::Value = serde_json::from_str(&save_res.content[0].as_text().unwrap().text).unwrap();
+    let id = val["data"]["id"].as_str().unwrap().to_string();
+    let mut dep_args = serde_json::Map::new();
+    dep_args.insert("id".to_string(), serde_json::json!(id));
+    dep_args.insert("reason".to_string(), serde_json::json!("superseded"));
+    let dep_req = CallToolRequestParam {
+        name: "mem_deprecate".into(),
+        arguments: Some(dep_args),
+    };
+    let dep_res = server.call_tool(dep_req, test_context()).await.unwrap();
+    let dep_text = dep_res.content[0].as_text().unwrap().text.clone();
+    assert!(!dep_text.is_empty(), "deprecate should return non-empty");
+}
+
+#[tokio::test]
+async fn test_mcp_mem_feedback() {
+    let server = test_server();
+    let save_args = make_args(vec![("title", "Feedback Test"), ("content", "rate me")]);
+    let save_req = CallToolRequestParam { name: "mem_save".into(), arguments: Some(save_args) };
+    let save_res = server.call_tool(save_req, test_context()).await.unwrap();
+    let val: serde_json::Value = serde_json::from_str(&save_res.content[0].as_text().unwrap().text).unwrap();
+    let id = val["data"]["id"].as_str().unwrap().to_string();
+    let mut fb_args = serde_json::Map::new();
+    fb_args.insert("id".to_string(), serde_json::json!(id));
+    fb_args.insert("feedback_type".to_string(), serde_json::json!("useful"));
+    let fb_req = CallToolRequestParam {
+        name: "mem_feedback".into(),
+        arguments: Some(fb_args),
+    };
+    let fb_res = server.call_tool(fb_req, test_context()).await.unwrap();
+    let fb_text = fb_res.content[0].as_text().unwrap().text.clone();
+    assert!(!fb_text.is_empty(), "feedback should return non-empty");
+}
+
+#[tokio::test]
+async fn test_mcp_mem_knowledge_gaps_empty() {
+    let server = test_server();
+    let args = make_args(vec![]);
+    let request = CallToolRequestParam {
+        name: "mem_knowledge_gaps".into(),
+        arguments: Some(args),
+    };
+    let result = server.call_tool(request, test_context()).await.unwrap();
+    let text = result.content[0].as_text().unwrap().text.clone();
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(parsed["success"], true);
+}
+
+#[tokio::test]
+async fn test_mcp_mem_remind_empty() {
+    let server = test_server();
+    let args = make_args(vec![]);
+    let request = CallToolRequestParam {
+        name: "mem_remind".into(),
+        arguments: Some(args),
+    };
+    let result = server.call_tool(request, test_context()).await.unwrap();
+    let text = result.content[0].as_text().unwrap().text.clone();
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(parsed["success"], true);
+}
+
+#[tokio::test]
+async fn test_mcp_mem_tag_suggest() {
+    let server = test_server();
+    let mut save_args = make_args(vec![("title", "Tag Test"), ("content", "rust code")]);
+    save_args.insert("tags".to_string(), serde_json::json!(["rust", "coding"]));
+    let save_req = CallToolRequestParam { name: "mem_save".into(), arguments: Some(save_args) };
+    let _ = server.call_tool(save_req, test_context()).await;
+    let args = make_args(vec![]);
+    let request = CallToolRequestParam {
+        name: "mem_tag_suggest".into(),
+        arguments: Some(args),
+    };
+    let result = server.call_tool(request, test_context()).await.unwrap();
+    let text = result.content[0].as_text().unwrap().text.clone();
+    assert!(!text.is_empty(), "tag_suggest should return non-empty");
+}
+
+#[tokio::test]
+async fn test_mcp_mem_restore_flow() {
+    let server = test_server();
+    let save_args = make_args(vec![("title", "Restore Me"), ("content", "gone but not forgotten")]);
+    let save_req = CallToolRequestParam { name: "mem_save".into(), arguments: Some(save_args) };
+    let save_res = server.call_tool(save_req, test_context()).await.unwrap();
+    let val: serde_json::Value = serde_json::from_str(&save_res.content[0].as_text().unwrap().text).unwrap();
+    let id = val["data"]["id"].as_str().unwrap().to_string();
+    let mut del_args = serde_json::Map::new();
+    del_args.insert("id".to_string(), serde_json::json!(id));
+    let del_req = CallToolRequestParam { name: "mem_delete".into(), arguments: Some(del_args.clone()) };
+    let _ = server.call_tool(del_req, test_context()).await;
+    let rest_req = CallToolRequestParam { name: "mem_restore".into(), arguments: Some(del_args) };
+    let rest_res = server.call_tool(rest_req, test_context()).await.unwrap();
+    let rest_text = rest_res.content[0].as_text().unwrap().text.clone();
+    assert!(!rest_text.is_empty(), "restore should return non-empty");
+}
+
+#[tokio::test]
+async fn test_mcp_mem_context_empty() {
+    let server = test_server();
+    let args = make_args(vec![]);
+    let request = CallToolRequestParam {
+        name: "mem_context".into(),
+        arguments: Some(args),
+    };
+    let result = server.call_tool(request, test_context()).await.unwrap();
+    let text = result.content[0].as_text().unwrap().text.clone();
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(parsed["success"], true);
+}
+
+#[tokio::test]
+async fn test_mcp_mem_inject_context() {
+    let server = test_server();
+    let args = make_args(vec![]);
+    let request = CallToolRequestParam {
+        name: "mem_inject_context".into(),
+        arguments: Some(args),
+    };
+    let result = server.call_tool(request, test_context()).await.unwrap();
+    let text = result.content[0].as_text().unwrap().text.clone();
+    assert!(!text.is_empty(), "inject_context should return non-empty");
+}
+
+#[tokio::test]
+async fn test_mcp_mem_forget_project() {
+    let server = test_server();
+    let args = make_args(vec![]);
+    let request = CallToolRequestParam {
+        name: "mem_forget_project".into(),
+        arguments: Some(args),
+    };
+    let result = server.call_tool(request, test_context()).await.unwrap();
+    let text = result.content[0].as_text().unwrap().text.clone();
+    assert!(!text.is_empty(), "forget_project should return non-empty");
+}
