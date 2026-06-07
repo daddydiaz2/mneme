@@ -531,3 +531,122 @@ async fn test_mcp_mem_forget_project() {
     let text = result.content[0].as_text().unwrap().text.clone();
     assert!(!text.is_empty(), "forget_project should return non-empty");
 }
+
+
+#[tokio::test]
+async fn test_mcp_mem_session_start_end() {
+    let server = test_server();
+    let args = make_args(vec![]);
+    let start_req = CallToolRequestParam {
+        name: "mem_session_start".into(),
+        arguments: Some(args),
+    };
+    let start_res = server.call_tool(start_req, test_context()).await.unwrap();
+    let start_text = start_res.content[0].as_text().unwrap().text.clone();
+    let start_val: serde_json::Value = serde_json::from_str(&start_text).unwrap();
+    assert_eq!(start_val["success"], true, "session should start: {start_val}");
+
+    let end_req = CallToolRequestParam {
+        name: "mem_session_end".into(),
+        arguments: Some(make_args(vec![])),
+    };
+    let end_res = server.call_tool(end_req, test_context()).await.unwrap();
+    let end_text = end_res.content[0].as_text().unwrap().text.clone();
+    assert!(!end_text.is_empty(), "session end should return non-empty");
+}
+
+#[tokio::test]
+async fn test_mcp_mem_save_prompt() {
+    let server = test_server();
+    let mut args = make_args(vec![]);
+    args.insert("content".to_string(), serde_json::json!("test prompt content"));
+    let request = CallToolRequestParam {
+        name: "mem_save_prompt".into(),
+        arguments: Some(args),
+    };
+    let result = server.call_tool(request, test_context()).await.unwrap();
+    let text = result.content[0].as_text().unwrap().text.clone();
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(parsed["success"], true, "save_prompt should succeed: {parsed}");
+}
+
+#[tokio::test]
+async fn test_mcp_mem_session_summary() {
+    let server = test_server();
+    let mut args = make_args(vec![]);
+    args.insert("content".to_string(), serde_json::json!("## Goal\nTest\n\n## Done\n- item 1"));
+
+    let request = CallToolRequestParam {
+        name: "mem_session_summary".into(),
+        arguments: Some(args),
+    };
+    let result = server.call_tool(request, test_context()).await.unwrap();
+    let text = result.content[0].as_text().unwrap().text.clone();
+    assert!(!text.is_empty(), "session_summary should return non-empty");
+}
+
+#[tokio::test]
+async fn test_mcp_mem_deduplicate_empty() {
+    let server = test_server();
+    let args = make_args(vec![]);
+    let request = CallToolRequestParam {
+        name: "mem_deduplicate".into(),
+        arguments: Some(args),
+    };
+    let result = server.call_tool(request, test_context()).await.unwrap();
+    let text = result.content[0].as_text().unwrap().text.clone();
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(parsed["success"], true, "deduplicate should succeed: {parsed}");
+}
+
+#[tokio::test]
+async fn test_mcp_mem_summarize_empty() {
+    let server = test_server();
+    let args = make_args(vec![]);
+    let request = CallToolRequestParam {
+        name: "mem_summarize".into(),
+        arguments: Some(args),
+    };
+    let result = server.call_tool(request, test_context()).await.unwrap();
+    let text = result.content[0].as_text().unwrap().text.clone();
+    assert!(!text.is_empty(), "summarize should return non-empty");
+}
+
+#[tokio::test]
+async fn test_mcp_mem_similar_empty() {
+    let server = test_server();
+    let args = make_args(vec![]);
+    let request = CallToolRequestParam {
+        name: "mem_similar".into(),
+        arguments: Some(args),
+    };
+    let result = server.call_tool(request, test_context()).await.unwrap();
+    let text = result.content[0].as_text().unwrap().text.clone();
+    assert!(!text.is_empty(), "similar should return non-empty");
+}
+
+#[tokio::test]
+async fn test_mcp_mem_encrypt_decrypt_no_key() {
+    let server = test_server();
+
+    // Save a memory
+    let save_args = make_args(vec![("title", "Secret"), ("content", "hidden content")]);
+    let save_req = CallToolRequestParam { name: "mem_save".into(), arguments: Some(save_args) };
+    let save_res = server.call_tool(save_req, test_context()).await.unwrap();
+    let val: serde_json::Value = serde_json::from_str(&save_res.content[0].as_text().unwrap().text).unwrap();
+    let id = val["data"]["id"].as_str().unwrap().to_string();
+
+    // Encrypt (should fail since no crypto is configured)
+    let mut enc_args = serde_json::Map::new();
+    enc_args.insert("id".to_string(), serde_json::json!(id));
+    let enc_req = CallToolRequestParam {
+        name: "mem_encrypt".into(),
+        arguments: Some(enc_args),
+    };
+    let enc_res = server.call_tool(enc_req, test_context()).await.unwrap();
+    let enc_text = enc_res.content[0].as_text().unwrap().text.clone();
+    let enc_val: serde_json::Value = serde_json::from_str(&enc_text).unwrap();
+    // Encrypt may fail with "no recipients configured" - that's OK
+    // Just verify we got a response
+    assert!(!enc_text.is_empty(), "encrypt should return a response: {enc_val}");
+}
