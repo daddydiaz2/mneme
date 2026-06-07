@@ -3,7 +3,6 @@ use mneme::store::memory::{CreateMemoryInput, Importance, MemoryStore, MemoryTyp
 use rusqlite::Connection;
 use secrecy::ExposeSecret;
 use std::sync::{Arc, Mutex};
-use uuid::Uuid;
 
 // Helper para crear una identity age nativa de test
 fn test_identity() -> (age::x25519::Identity, age::x25519::Recipient) {

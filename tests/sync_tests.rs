@@ -1,4 +1,3 @@
-use automerge::transaction::Transactable;
 use mneme::store::db::Database;
 use mneme::store::memory::{CreateMemoryInput, Importance, MemoryType, Scope};
 use mneme::sync::crdt;

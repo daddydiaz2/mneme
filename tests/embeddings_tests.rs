@@ -1,6 +1,9 @@
+#[cfg(feature = "embeddings")]
 use std::path::PathBuf;
+#[cfg(feature = "embeddings")]
 use uuid::Uuid;
 
+#[cfg(feature = "embeddings")]
 use mneme::store::db::Database;
 
 #[cfg(feature = "embeddings")]
@@ -24,7 +27,7 @@ async fn test_cosine_similarity_orthogonal_vectors() {
 #[cfg(feature = "embeddings")]
 #[test]
 fn test_embedding_serialization_roundtrip() {
-    let original = vec![1.5f32, -2.0, 0.0, 3.14];
+    let original = vec![1.5f32, -2.0, 0.0, 3.15];
     let bytes = mneme::embeddings::store::EmbeddingStore::serialize(&original);
     let recovered = mneme::embeddings::store::EmbeddingStore::deserialize(&bytes);
     assert_eq!(original, recovered);

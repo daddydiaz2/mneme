@@ -2,9 +2,7 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 use mneme::store::db::Database;
-use mneme::store::memory::{
-    CreateMemoryInput, Importance, MemoryType, Scope, SearchQuery, UpdateMemoryInput,
-};
+use mneme::store::memory::{CreateMemoryInput, Importance, MemoryType, Scope, SearchQuery};
 
 fn setup_db() -> Database {
     let path = PathBuf::from(format!("/tmp/mneme_test_{}.db", Uuid::new_v4()));

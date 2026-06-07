@@ -1,0 +1,93 @@
+# API REST de mneme - Ejemplos Interactivos
+# Compatible con VS Code REST Client, Bruno, IntelliJ HTTP Client.
+#
+# Para ejecutar estos ejemplos locales, inicia el servidor en el puerto 8080:
+# $ mneme serve --port 8080
+
+@host = http://localhost:8080
+@contentType = application/json
+@proj = mi-proyecto-demo
+
+###
+# 1. Estado del Sistema
+# Devuelve el reporte de salud, tamaño de base de datos y memorias no indexadas.
+GET {{host}}/api/v1/health
+Accept: {{contentType}}
+
+###
+# 2. Guardar una Memoria
+# Crea o actualiza una memoria (si coincide el topic_key).
+# @name createMemory
+POST {{host}}/api/v1/memories
+Content-Type: {{contentType}}
+
+{
+  "project": "{{proj}}",
+  "scope": "project",
+  "title": "Configuración de logs en Axum",
+  "content": "**What**: Configurar tracing_subscriber en main\n**Why**: Necesitamos logs estructurados en producción",
+  "what": "Configurar tracing_subscriber en main",
+  "why": "Necesitamos logs estructurados en producción",
+  "context": "Rust 2021, Axum 0.7",
+  "learned": "El layer de fmt debe ir antes de target filters",
+  "memory_type": "config",
+  "importance": "high",
+  "tags": ["rust", "axum", "logging"],
+  "topic_key": "config/logging-axum",
+  "encrypt": false
+}
+
+###
+# Guardar el ID de la respuesta anterior
+@memoryId = {{createMemory.response.body.id}}
+
+###
+# 3. Listar Memorias de un Proyecto
+GET {{host}}/api/v1/memories?project={{proj}}&limit=10
+Accept: {{contentType}}
+
+###
+# 4. Obtener una Memoria por ID
+GET {{host}}/api/v1/memories/{{memoryId}}
+Accept: {{contentType}}
+
+###
+# 5. Búsqueda Híbrida
+# Combina FTS5, fuzzy matching y embeddings (si están habilitados).
+GET {{host}}/api/v1/search?q=tracing&project={{proj}}&limit=5
+Accept: {{contentType}}
+
+###
+# 6. Grafo de Relaciones
+# Devuelve los nodos y aristas (relaciones) del proyecto.
+GET {{host}}/api/v1/graph?project={{proj}}
+Accept: {{contentType}}
+
+###
+# 7. Registrar Feedback de Utilidad
+POST {{host}}/api/v1/memories/{{memoryId}}/feedback
+Content-Type: {{contentType}}
+
+{
+  "relation_id": null,
+  "feedback_type": "useful"
+}
+
+###
+# 8. Deprecar una Memoria
+POST {{host}}/api/v1/memories/{{memoryId}}/deprecate
+Content-Type: {{contentType}}
+
+{
+  "reason": "Reemplazado por middleware de tracing en infraestructura"
+}
+
+###
+# 9. Listar Proyectos Activos
+GET {{host}}/api/v1/projects
+Accept: {{contentType}}
+
+###
+# 10. Eliminar Memoria (Soft-delete)
+DELETE {{host}}/api/v1/memories/{{memoryId}}
+Accept: {{contentType}}
