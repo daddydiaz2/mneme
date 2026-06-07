@@ -57,7 +57,9 @@ impl DirectoryWatcher {
         }
     }
 
-    async fn scan(&mut self) -> crate::error::Result<()> {
+    /// Escanea el directorio en busca de archivos nuevos o modificados.
+    /// Público para testing y uso manual.
+    pub async fn scan(&mut self) -> crate::error::Result<()> {
         let entries = std::fs::read_dir(&self.dir)?;
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
@@ -234,6 +236,89 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_frontmatter_extracts_importance() {
+        let content = "---\ntitle: Critical Mem\ntype: note\nimportance: critical\n---\nimportant!";
+        let parsed = parse_mneme_file(content);
+        assert!(matches!(parsed.importance, Importance::Critical));
+    }
+
+    #[test]
+    fn test_parse_frontmatter_importance_high() {
+        let content = "---\ntitle: High Mem\nimportance: high\n---\nbody";
+        let parsed = parse_mneme_file(content);
+        assert!(matches!(parsed.importance, Importance::High));
+    }
+
+    #[test]
+    fn test_parse_frontmatter_importance_low() {
+        let content = "---\ntitle: Low Mem\nimportance: low\n---\nbody";
+        let parsed = parse_mneme_file(content);
+        assert!(matches!(parsed.importance, Importance::Low));
+    }
+
+    #[test]
+    fn test_parse_frontmatter_invalid_type_uses_note() {
+        let content = "---\ntitle: T\ntype: invalid_type_xyz\n---\nbody";
+        let parsed = parse_mneme_file(content);
+        assert!(matches!(parsed.memory_type, MemoryType::Note));
+    }
+
+    #[test]
+    fn test_parse_frontmatter_invalid_importance_uses_medium() {
+        let content = "---\ntitle: T\nimportance: uber\n---\nbody";
+        let parsed = parse_mneme_file(content);
+        assert!(matches!(parsed.importance, Importance::Medium));
+    }
+
+    #[test]
+    fn test_parse_frontmatter_missing_title_falls_back_to_body() {
+        let content = "---\ntype: decision\n---\nFallback Title\ncontent";
+        let parsed = parse_mneme_file(content);
+        assert_eq!(parsed.title, "Fallback Title");
+    }
+
+    #[test]
+    fn test_parse_frontmatter_empty_body() {
+        let content = "---\ntitle: Only Title\ntype: note\n---";
+        let parsed = parse_mneme_file(content);
+        assert_eq!(parsed.title, "Only Title");
+        assert!(parsed.content.is_empty() || parsed.content == "Only Title");
+    }
+
+    #[test]
+    fn test_parse_frontmatter_no_closing_separator() {
+        let content = "---\ntitle: No Close\ntype: bugfix\nbody line";
+        let parsed = parse_mneme_file(content);
+        // Without closing ---, it falls back to treating the whole thing as simple format
+        // The first line "---" becomes the title
+        assert!(!parsed.title.is_empty());
+    }
+
+    #[test]
+    fn test_parse_frontmatter_all_types_roundtrip() {
+        for (type_str, expected) in [
+            ("architecture", MemoryType::Architecture),
+            ("decision", MemoryType::Decision),
+            ("bugfix", MemoryType::Bugfix),
+            ("pattern", MemoryType::Pattern),
+            ("convention", MemoryType::Convention),
+            ("dependency", MemoryType::Dependency),
+            ("workflow", MemoryType::Workflow),
+            ("note", MemoryType::Note),
+            ("config", MemoryType::Config),
+            ("discovery", MemoryType::Discovery),
+            ("learning", MemoryType::Learning),
+        ] {
+            let content = format!("---\ntitle: T\ntype: {type_str}\n---\nbody");
+            let parsed = parse_mneme_file(&content);
+            assert_eq!(
+                parsed.memory_type, expected,
+                "type '{type_str}' should parse to {expected:?}"
+            );
+        }
+    }
+
+    #[test]
     fn test_parse_simple_uses_first_line_as_title() {
         let content = "First Line Title\nRest of content\nMore content";
         let parsed = parse_mneme_file(content);
@@ -248,9 +333,54 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_simple_single_line() {
+        let content = "Just a single line";
+        let parsed = parse_mneme_file(content);
+        assert_eq!(parsed.title, "Just a single line");
+        assert!(parsed.content.contains("Just a single line"));
+    }
+
+    #[test]
+    fn test_parse_simple_empty_string() {
+        let content = "";
+        let parsed = parse_mneme_file(content);
+        assert_eq!(parsed.title, "untitled");
+    }
+
+    #[test]
     fn test_parse_empty_frontmatter_title_falls_back_to_body() {
         let content = "---\n---\nfallback title\nsome content";
         let parsed = parse_mneme_file(content);
         assert!(!parsed.title.is_empty());
+    }
+
+    #[test]
+    fn test_parse_frontmatter_empty_tags_yields_empty_vec() {
+        let content = "---\ntitle: T\ntags:\n---\nbody";
+        let parsed = parse_mneme_file(content);
+        assert!(parsed.tags.is_empty());
+    }
+
+    #[test]
+    fn test_parse_mneme_file_detects_frontmatter() {
+        let content = "---\ntitle: FM\ntype: decision\n---\nbody";
+        let parsed = parse_mneme_file(content);
+        assert_eq!(parsed.title, "FM");
+        assert!(matches!(parsed.memory_type, MemoryType::Decision));
+    }
+
+    #[test]
+    fn test_parse_mneme_file_detects_simple() {
+        let content = "Simple title\nbody text";
+        let parsed = parse_mneme_file(content);
+        assert_eq!(parsed.title, "Simple title");
+    }
+
+    #[test]
+    fn test_parse_only_frontmatter_no_body_line() {
+        let content = "---\ntitle: Solo\n---";
+        let parsed = parse_mneme_file(content);
+        assert_eq!(parsed.title, "Solo");
+        assert!(parsed.memory_type == MemoryType::Note);
     }
 }
