@@ -1,0 +1,18 @@
+/target/
+**/*.rs.bk
+Cargo.lock
+.env
+*.db
+*.db-wal
+*.db-shm
+.DS_Store
+/dist/
+
+# Archivos de desarrollo local / prompts de construcción
+mneme_*_prompt*.md
+mneme_prompt_*.md
+.agents/
+.atl/
+.pi/
+.claude/
+skills-lock.json

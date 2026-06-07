@@ -1,0 +1,85 @@
+[package]
+name = "mneme"
+version = "0.1.0"
+edition = "2021"
+authors = ["mneme contributors"]
+description = "Persistent memory system for AI coding agents"
+license = "MIT"
+repository = "https://github.com/tu-usuario/mneme"
+
+[[bin]]
+name = "mneme"
+path = "src/main.rs"
+
+[dependencies]
+# Almacenamiento
+rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite_migration = "1.2"
+
+# MCP Protocol
+rmcp = { version = "0.1", features = ["server", "transport-io"] }
+schemars = "0.8"
+
+# HTTP API
+axum = { version = "0.7", features = ["json", "tokio"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# CLI
+clap = { version = "4", features = ["derive", "env", "wrap_help"] }
+
+# TUI
+ratatui = "0.27"
+crossterm = { version = "0.27", features = ["event-stream"] }
+
+# Serialización y tipos
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+toml = "0.8"
+
+# Async
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Utilidades
+dirs = "5"
+anyhow = "1"
+thiserror = "1"
+fuzzy-matcher = "0.3"
+md5 = "0.7"
+unicode-width = "0.1"
+
+# Embeddings (optional, enabled via --features embeddings)
+fastembed = { version = "4", optional = true }
+sqlite-vec = { version = "0.1", optional = true }
+ndarray = { version = "0.15", optional = true }
+
+# Encriptación
+age = { version = "0.10", features = ["ssh"] }
+
+# Sync
+automerge = "0.5"
+zstd = "0.13"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+hostname = "0.4"
+hex = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
+secrecy = "0.8"
+
+[features]
+default = []
+embeddings = ["dep:fastembed", "dep:sqlite-vec", "dep:ndarray"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

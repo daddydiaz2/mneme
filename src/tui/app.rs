@@ -1,0 +1,222 @@
+use std::sync::Arc;
+
+use crate::config::settings::Settings;
+use crate::store::db::Database;
+use crate::store::memory::{Memory, SearchQuery};
+
+/// Modos de operación de la aplicación TUI.
+pub enum AppMode {
+    /// Navegación normal.
+    Normal,
+    /// Escritura en la barra de búsqueda.
+    Searching,
+    /// Confirmación de una acción destructiva.
+    Confirming {
+        action: String,
+        memory_id: uuid::Uuid,
+    },
+    /// Overlay de ayuda visible.
+    Help,
+}
+
+/// Estado global de la aplicación TUI.
+pub struct App {
+    /// Modo actual.
+    pub mode: AppMode,
+    /// Proyecto activo.
+    pub project: String,
+    /// Memorias cargadas.
+    pub memories: Vec<Memory>,
+    /// Índice de la memoria seleccionada.
+    pub selected: usize,
+    /// Offset de scroll en la lista.
+    pub scroll_offset: usize,
+    /// Texto de búsqueda actual.
+    pub search_query: String,
+    /// Mensaje transitorio para la status bar.
+    pub status_message: Option<String>,
+    /// Flag para salir del loop.
+    pub should_quit: bool,
+    db: Arc<Database>,
+    #[allow(dead_code)]
+    settings: Arc<Settings>,
+}
+
+impl App {
+    /// Crea una nueva instancia de la app y carga el proyecto inferido.
+    pub fn new(db: Arc<Database>, settings: Arc<Settings>) -> crate::error::Result<Self> {
+        let project = Settings::infer_project();
+        Ok(Self {
+            mode: AppMode::Normal,
+            project,
+            memories: Vec::new(),
+            selected: 0,
+            scroll_offset: 0,
+            search_query: String::new(),
+            status_message: None,
+            should_quit: false,
+            db,
+            settings,
+        })
+    }
+
+    /// Carga las memorias del proyecto actual aplicando búsqueda si hay query activa.
+    pub fn load_memories(&mut self) -> crate::error::Result<()> {
+        let store = self.db.memories();
+        let memories = if self.search_query.is_empty() {
+            store.list(&self.project, None, None, None, 200, 0)?
+        } else {
+            let query = SearchQuery {
+                text: self.search_query.clone(),
+                project: Some(self.project.clone()),
+                scope: None,
+                memory_type: None,
+                importance: None,
+                tags: Vec::new(),
+                limit: 200,
+                include_snippet: false,
+                all_projects: false,
+            };
+            let weights = crate::store::search::SearchWeights::default();
+            store
+                .search(&query, &weights, None)?
+                .into_iter()
+                .map(|r| r.memory)
+                .collect()
+        };
+        self.memories = memories;
+        self.selected = self.selected.min(self.memories.len().saturating_sub(1));
+        Ok(())
+    }
+
+    /// Mueve la selección hacia abajo.
+    pub fn select_next(&mut self) {
+        if !self.memories.is_empty() {
+            self.selected = (self.selected + 1).min(self.memories.len() - 1);
+            self.ensure_selected_visible(20);
+        }
+    }
+
+    /// Mueve la selección hacia arriba.
+    pub fn select_prev(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+        self.ensure_selected_visible(20);
+    }
+
+    /// Va al primer elemento.
+    pub fn select_first(&mut self) {
+        self.selected = 0;
+        self.scroll_offset = 0;
+    }
+
+    /// Va al último elemento.
+    pub fn select_last(&mut self) {
+        if !self.memories.is_empty() {
+            self.selected = self.memories.len() - 1;
+            self.ensure_selected_visible(20);
+        }
+    }
+
+    /// Avanza una página.
+    pub fn page_down(&mut self) {
+        let page_size = 20usize;
+        if !self.memories.is_empty() {
+            self.selected = (self.selected + page_size).min(self.memories.len() - 1);
+            self.ensure_selected_visible(page_size);
+        }
+    }
+
+    /// Retrocede una página.
+    pub fn page_up(&mut self) {
+        let page_size = 20usize;
+        self.selected = self.selected.saturating_sub(page_size);
+        self.ensure_selected_visible(page_size);
+    }
+
+    /// Retorna la memoria seleccionada si existe.
+    pub fn selected_memory(&self) -> Option<&Memory> {
+        self.memories.get(self.selected)
+    }
+
+    /// Activa el modo de búsqueda.
+    pub fn start_search(&mut self) {
+        self.mode = AppMode::Searching;
+        self.search_query.clear();
+    }
+
+    /// Confirma la búsqueda y recarga las memorias.
+    pub fn confirm_search(&mut self) -> crate::error::Result<()> {
+        self.mode = AppMode::Normal;
+        self.load_memories()?;
+        Ok(())
+    }
+
+    /// Cancela la búsqueda y vuelve a mostrar todas las memorias.
+    pub fn cancel_search(&mut self) {
+        self.mode = AppMode::Normal;
+        self.search_query.clear();
+        let _ = self.load_memories();
+    }
+
+    /// Agrega un carácter al query de búsqueda.
+    pub fn push_search_char(&mut self, c: char) {
+        self.search_query.push(c);
+    }
+
+    /// Elimina el último carácter del query de búsqueda.
+    pub fn pop_search_char(&mut self) {
+        self.search_query.pop();
+    }
+
+    /// Inicia la confirmación para eliminar la memoria seleccionada.
+    pub fn delete_selected(&mut self) -> crate::error::Result<()> {
+        if let Some(memory) = self.selected_memory() {
+            let id = memory.id;
+            self.mode = AppMode::Confirming {
+                action: "delete".to_string(),
+                memory_id: id,
+            };
+        }
+        Ok(())
+    }
+
+    /// Confirma la acción pendiente.
+    pub fn confirm_action(&mut self) -> crate::error::Result<()> {
+        if let AppMode::Confirming { action, memory_id } = &self.mode {
+            if action == "delete" {
+                let store = self.db.memories();
+                store.delete(*memory_id, false)?;
+                self.status_message = Some("Memoria eliminada".to_string());
+                self.load_memories()?;
+            }
+            self.mode = AppMode::Normal;
+        }
+        Ok(())
+    }
+
+    /// Cancela la acción pendiente.
+    pub fn cancel_confirm(&mut self) {
+        self.mode = AppMode::Normal;
+    }
+
+    /// Alterna la visibilidad del overlay de ayuda.
+    pub fn toggle_help(&mut self) {
+        self.mode = match self.mode {
+            AppMode::Help => AppMode::Normal,
+            _ => AppMode::Help,
+        };
+    }
+
+    /// Marca la app para salir del loop.
+    pub fn quit(&mut self) {
+        self.should_quit = true;
+    }
+
+    fn ensure_selected_visible(&mut self, visible_height: usize) {
+        if self.selected < self.scroll_offset {
+            self.scroll_offset = self.selected;
+        } else if self.selected >= self.scroll_offset + visible_height {
+            self.scroll_offset = self.selected.saturating_sub(visible_height - 1);
+        }
+    }
+}
