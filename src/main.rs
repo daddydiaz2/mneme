@@ -76,7 +76,9 @@ async fn main() -> anyhow::Result<()> {
         let recipients = key_store.load_all_recipients().unwrap_or_default();
 
         if recipients.is_empty() {
-            tracing::warn!("encriptacion habilitada pero sin claves registradas — usar 'mneme keys add'");
+            tracing::warn!(
+                "encriptacion habilitada pero sin claves registradas — usar 'mneme keys add'"
+            );
             db
         } else {
             let mut engine = mneme::crypto::CryptoEngine::new(recipients);
@@ -89,11 +91,16 @@ async fn main() -> anyhow::Result<()> {
                 } else {
                     match engine.load_identity() {
                         Ok(_) => tracing::info!("identidad de desencriptacion cargada"),
-                        Err(e) => tracing::warn!(error = %e, "identidad no disponible — solo encriptacion activa"),
+                        Err(e) => {
+                            tracing::warn!(error = %e, "identidad no disponible — solo encriptacion activa")
+                        }
                     }
                 }
             }
-            Arc::new(Database::with_crypto(Arc::try_unwrap(db).unwrap_or_else(|arc| (*arc).clone()), Arc::new(std::sync::Mutex::new(engine))))
+            Arc::new(Database::with_crypto(
+                Arc::try_unwrap(db).unwrap_or_else(|arc| (*arc).clone()),
+                Arc::new(std::sync::Mutex::new(engine)),
+            ))
         }
     } else {
         tracing::debug!("encriptacion deshabilitada por configuracion");
@@ -102,8 +109,7 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Mcp => {
-            let server =
-                mneme::mcp::server::MnemeServer::new(db, Arc::new(settings), embeddings);
+            let server = mneme::mcp::server::MnemeServer::new(db, Arc::new(settings), embeddings);
             server.run_stdio().await?;
         }
         Commands::Serve { port, host } => {
@@ -117,11 +123,19 @@ async fn main() -> anyhow::Result<()> {
             let settings_arc = Arc::new(settings.clone());
             mneme::tui::run_tui(Arc::clone(&db), settings_arc)?;
         }
-        Commands::Watch { project, dir, interval, ext } => {
+        Commands::Watch {
+            project,
+            dir,
+            interval,
+            ext,
+        } => {
             let project = project.unwrap_or_else(Settings::infer_project);
-            let dir = dir.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
+            let dir = dir.unwrap_or_else(|| {
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+            });
             let store = db.memories();
-            let mut watcher = mneme::watch::DirectoryWatcher::new(dir, ext, interval, store, project);
+            let mut watcher =
+                mneme::watch::DirectoryWatcher::new(dir, ext, interval, store, project);
             watcher.run().await?;
         }
         command => {

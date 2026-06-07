@@ -36,7 +36,9 @@ fn test_update_memory_title_changes() {
     let db = setup_db();
     let store = db.memories();
 
-    let mem = store.save(make_input("proj", "Original Title"), None, None).unwrap();
+    let mem = store
+        .save(make_input("proj", "Original Title"), None, None)
+        .unwrap();
     let updated = store
         .update(
             mem.id,
@@ -84,7 +86,9 @@ fn test_list_filters_by_type() {
     input.memory_type = MemoryType::Decision;
     store.save(input, None, None).unwrap();
 
-    let notes = store.list("proj", Some(&MemoryType::Note), None, None, 10, 0).unwrap();
+    let notes = store
+        .list("proj", Some(&MemoryType::Note), None, None, 10, 0)
+        .unwrap();
     assert_eq!(notes.len(), 1);
     assert!(notes.iter().all(|m| m.memory_type == MemoryType::Note));
 }
@@ -102,7 +106,9 @@ fn test_list_filters_by_importance() {
     input.importance = Importance::High;
     store.save(input, None, None).unwrap();
 
-    let high = store.list("proj", None, Some(&Importance::High), None, 10, 0).unwrap();
+    let high = store
+        .list("proj", None, Some(&Importance::High), None, 10, 0)
+        .unwrap();
     assert_eq!(high.len(), 1);
     assert_eq!(high[0].importance, Importance::High);
 }
@@ -113,7 +119,9 @@ fn test_list_respects_limit_and_offset() {
     let store = db.memories();
 
     for i in 0..5 {
-        store.save(make_input("proj", &format!("Item {}", i)), None, None).unwrap();
+        store
+            .save(make_input("proj", &format!("Item {}", i)), None, None)
+            .unwrap();
     }
 
     let page1 = store.list("proj", None, None, None, 2, 0).unwrap();
@@ -129,7 +137,9 @@ fn test_list_excludes_deleted() {
     let db = setup_db();
     let store = db.memories();
 
-    let mem = store.save(make_input("proj", "To Delete"), None, None).unwrap();
+    let mem = store
+        .save(make_input("proj", "To Delete"), None, None)
+        .unwrap();
     store.delete(mem.id, false).unwrap();
 
     let all = store.list("proj", None, None, None, 10, 0).unwrap();
@@ -142,7 +152,9 @@ fn test_context_returns_recent_memories() {
     let store = db.memories();
 
     for i in 0..3 {
-        store.save(make_input("proj", &format!("Context {}", i)), None, None).unwrap();
+        store
+            .save(make_input("proj", &format!("Context {}", i)), None, None)
+            .unwrap();
     }
 
     let ctx = store.context("proj", None, 2).unwrap();
@@ -309,7 +321,9 @@ fn test_deprecate_with_superseded_by() {
     let old_mem = store.save(make_input("proj", "Old"), None, None).unwrap();
     let new_mem = store.save(make_input("proj", "New"), None, None).unwrap();
 
-    let deprecated = store.deprecate(old_mem.id, "replaced", Some(new_mem.id)).unwrap();
+    let deprecated = store
+        .deprecate(old_mem.id, "replaced", Some(new_mem.id))
+        .unwrap();
     assert_eq!(deprecated.supersedes_id, Some(new_mem.id.to_string()));
 }
 
@@ -318,8 +332,12 @@ fn test_feedback_useful_increases_score() {
     let db = setup_db();
     let store = db.memories();
 
-    let mem = store.save(make_input("proj", "Feedback test"), None, None).unwrap();
-    let id = store.add_feedback(mem.id, true, Some("very helpful")).unwrap();
+    let mem = store
+        .save(make_input("proj", "Feedback test"), None, None)
+        .unwrap();
+    let id = store
+        .add_feedback(mem.id, true, Some("very helpful"))
+        .unwrap();
     assert!(id > 0);
 }
 
@@ -328,8 +346,12 @@ fn test_feedback_not_useful_decreases_score() {
     let db = setup_db();
     let store = db.memories();
 
-    let mem = store.save(make_input("proj", "Feedback test"), None, None).unwrap();
-    let id = store.add_feedback(mem.id, false, Some("not helpful")).unwrap();
+    let mem = store
+        .save(make_input("proj", "Feedback test"), None, None)
+        .unwrap();
+    let id = store
+        .add_feedback(mem.id, false, Some("not helpful"))
+        .unwrap();
     assert!(id > 0);
 }
 
@@ -354,7 +376,9 @@ fn test_forget_project_returns_count() {
     let store = db.memories();
 
     for i in 0..5 {
-        store.save(make_input("proj", &format!("M{}", i)), None, None).unwrap();
+        store
+            .save(make_input("proj", &format!("M{}", i)), None, None)
+            .unwrap();
     }
 
     let count = store.forget_project("proj").unwrap();
@@ -381,7 +405,9 @@ fn test_knowledge_gaps_detects_missing_types() {
 
     // Only notes — should trigger gaps for other types
     for i in 0..3 {
-        store.save(make_input("proj", &format!("Note {}", i)), None, None).unwrap();
+        store
+            .save(make_input("proj", &format!("Note {}", i)), None, None)
+            .unwrap();
     }
 
     let report = store.knowledge_gaps("proj").unwrap();
@@ -404,7 +430,9 @@ fn test_remind_returns_high_importance_memories() {
 
     let reminders = store.remind("proj", &Importance::High).unwrap();
     assert!(!reminders.is_empty());
-    assert!(reminders.iter().all(|m| m.importance == Importance::High || m.importance == Importance::Critical));
+    assert!(reminders
+        .iter()
+        .all(|m| m.importance == Importance::High || m.importance == Importance::Critical));
 }
 
 #[test]
@@ -440,8 +468,12 @@ fn test_summarize_project_returns_result() {
     let db = setup_db();
     let store = db.memories();
 
-    store.save(make_input("proj", "Decision One"), None, None).unwrap();
-    store.save(make_input("proj", "Decision Two"), None, None).unwrap();
+    store
+        .save(make_input("proj", "Decision One"), None, None)
+        .unwrap();
+    store
+        .save(make_input("proj", "Decision Two"), None, None)
+        .unwrap();
 
     let summary = store.summarize("proj", None).unwrap();
     assert!(!summary.summary.is_empty());

@@ -30,10 +30,7 @@ impl HttpTransport {
             .await
             .map_err(|e| MnemeError::Http(e.to_string()))?;
         if !res.status().is_success() {
-            return Err(MnemeError::Http(format!(
-                "hello failed: {}",
-                res.status()
-            )));
+            return Err(MnemeError::Http(format!("hello failed: {}", res.status())));
         }
         res.json()
             .await
@@ -51,10 +48,7 @@ impl HttpTransport {
             .await
             .map_err(|e| MnemeError::Http(e.to_string()))?;
         if !res.status().is_success() {
-            return Err(MnemeError::Http(format!(
-                "pull failed: {}",
-                res.status()
-            )));
+            return Err(MnemeError::Http(format!("pull failed: {}", res.status())));
         }
         res.json()
             .await
@@ -72,10 +66,7 @@ impl HttpTransport {
             .await
             .map_err(|e| MnemeError::Http(e.to_string()))?;
         if !res.status().is_success() {
-            return Err(MnemeError::Http(format!(
-                "push failed: {}",
-                res.status()
-            )));
+            return Err(MnemeError::Http(format!("push failed: {}", res.status())));
         }
         Ok(())
     }

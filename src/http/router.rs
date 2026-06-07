@@ -60,8 +60,14 @@ pub fn create_router(
         .route("/api/v1/remind", get(handlers::get_remind))
         .route("/api/v1/tag-suggest", post(handlers::tag_suggest))
         .route("/api/v1/knowledge-gaps", get(handlers::get_knowledge_gaps))
-        .route("/api/v1/memories/:id/encrypt", post(handlers::encrypt_memory))
-        .route("/api/v1/memories/:id/decrypt", post(handlers::decrypt_memory))
+        .route(
+            "/api/v1/memories/:id/encrypt",
+            post(handlers::encrypt_memory),
+        )
+        .route(
+            "/api/v1/memories/:id/decrypt",
+            post(handlers::decrypt_memory),
+        )
         .route("/api/v1/keys", get(handlers::list_keys))
         .route("/api/v1/keys", post(handlers::add_key))
         .route("/api/v1/keys/:id", delete(handlers::remove_key))

@@ -83,6 +83,7 @@ fn tool_response<T: serde::Serialize>(
                 crate::error::MnemeError::AlreadyEncrypted(_) => "ALREADY_ENCRYPTED",
                 crate::error::MnemeError::NotEncrypted(_) => "NOT_ENCRYPTED",
                 crate::error::MnemeError::KeyNotFound(_) => "KEY_NOT_FOUND",
+                crate::error::MnemeError::Plugin(_) => "PLUGIN_ERROR",
             };
             let envelope = json!({
                 "success": false,
@@ -98,17 +99,27 @@ fn tool_response<T: serde::Serialize>(
     }
 }
 
-/// Executes an MCP tool by name.
+/// Executes an MCP tool by name, with optional plugin dispatch.
 pub async fn execute_tool(
     db: &Database,
     name: &str,
     arguments: Option<JsonObject>,
     project: &str,
     embeddings: Option<&std::sync::Arc<crate::embeddings::engine::EmbeddingEngine>>,
+    plugins: Option<&crate::plugins::PluginManager>,
 ) -> CallToolResult {
     tracing::debug!("MCP tool call: {} with args: {:?}", name, arguments);
 
     let args = arguments.unwrap_or_default();
+
+    // Check plugin dispatch first for unknown built-in tools.
+    if let Some(pm) = plugins {
+        if pm.owns_tool(name) {
+            let args_value = serde_json::Value::Object(args);
+            let result = pm.call_tool(name, args_value, project);
+            return tool_response(result, project);
+        }
+    }
 
     let result = match name {
         "mem_save" => mem_save(db, args, project, embeddings),
@@ -1077,7 +1088,9 @@ fn mem_save_batch(
 
     let engine = embeddings.map(std::sync::Arc::clone);
     let embedding_store = db.embeddings();
-    let (saved, duplicates) = db.memories().save_batch(inputs, engine, Some(embedding_store))?;
+    let (saved, duplicates) = db
+        .memories()
+        .save_batch(inputs, engine, Some(embedding_store))?;
     Ok(json!({
         "saved": saved,
         "duplicates": duplicates,
@@ -1091,8 +1104,9 @@ fn mem_delete_relation(
     args: JsonObject,
     _project: &str,
 ) -> crate::error::Result<serde_json::Value> {
-    let params: MemDeleteRelationParams = serde_json::from_value(serde_json::Value::Object(args))
-        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+    let params: MemDeleteRelationParams =
+        serde_json::from_value(serde_json::Value::Object(args))
+            .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
 
     let id = Uuid::parse_str(&params.relation_id)
         .map_err(|e| crate::error::MnemeError::Config(e.to_string()))?;
@@ -1124,9 +1138,9 @@ fn mem_deduplicate(
 
     let project = params.project.unwrap_or_else(|| project.to_string());
     let embedding_store = db.embeddings();
-    let groups = db
-        .memories()
-        .find_duplicates_semantic(&project, params.threshold, &embedding_store)?;
+    let groups =
+        db.memories()
+            .find_duplicates_semantic(&project, params.threshold, &embedding_store)?;
     Ok(serde_json::to_value(groups)?)
 }
 
@@ -1141,9 +1155,9 @@ fn mem_feedback(
     let memory_id = Uuid::parse_str(&params.memory_id)
         .map_err(|e| crate::error::MnemeError::Config(e.to_string()))?;
 
-    let feedback_id = db
-        .memories()
-        .add_feedback(memory_id, params.is_useful, params.reason.as_deref())?;
+    let feedback_id =
+        db.memories()
+            .add_feedback(memory_id, params.is_useful, params.reason.as_deref())?;
     Ok(json!({
         "memory_id": params.memory_id,
         "feedback_id": feedback_id
@@ -1425,9 +1439,9 @@ fn keys_status(
     }))
 }
 
-/// Returns the list of all MCP tool definitions.
-pub fn list_tools() -> Vec<Tool> {
-    vec![
+/// Returns the list of all MCP tool definitions, including plugin-provided tools.
+pub fn list_tools(plugins: Option<&crate::plugins::PluginManager>) -> Vec<Tool> {
+    let mut tools = vec![
         Tool::new(
             "mem_save",
             "Save a memory with deduplication and topic_key support",
@@ -1633,5 +1647,25 @@ pub fn list_tools() -> Vec<Tool> {
             "Get encryption keys status",
             Arc::new(schema_for_type::<KeysStatusParams>()),
         ),
-    ]
+    ];
+
+    // Append plugin-provided tools.
+    if let Some(pm) = plugins {
+        for pt in pm.plugin_tools() {
+            tools.push(Tool::new(
+                pt.name,
+                pt.description,
+                Arc::new(
+                    pt.input_schema
+                        .as_object()
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .collect(),
+                ),
+            ));
+        }
+    }
+
+    tools
 }

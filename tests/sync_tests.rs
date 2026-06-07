@@ -21,7 +21,7 @@ fn test_crdt_merge_is_commutative() {
     let mem = store
         .save(
             CreateMemoryInput {
-            encrypt: false,
+                encrypt: false,
                 project: "crdt-test".to_string(),
                 scope: Some(Scope::Project),
                 title: "Test Memory".to_string(),
@@ -44,7 +44,7 @@ fn test_crdt_merge_is_commutative() {
     let mem2 = store
         .save(
             CreateMemoryInput {
-            encrypt: false,
+                encrypt: false,
                 project: "crdt-test".to_string(),
                 scope: Some(Scope::Project),
                 title: "Test Memory".to_string(),
@@ -91,7 +91,7 @@ fn test_crdt_merge_is_idempotent() {
     let mem = store
         .save(
             CreateMemoryInput {
-            encrypt: false,
+                encrypt: false,
                 project: "crdt-test".to_string(),
                 scope: Some(Scope::Project),
                 title: "Test Memory".to_string(),
@@ -137,7 +137,7 @@ fn test_crdt_doc_roundtrip() {
     let mem = store
         .save(
             CreateMemoryInput {
-            encrypt: false,
+                encrypt: false,
                 project: "roundtrip-test".to_string(),
                 scope: Some(Scope::Project),
                 title: "Roundtrip".to_string(),
@@ -246,7 +246,7 @@ fn test_sync_engine_build_hello() {
     store
         .save(
             CreateMemoryInput {
-            encrypt: false,
+                encrypt: false,
                 project: "sync-test".to_string(),
                 scope: Some(Scope::Project),
                 title: "Sync Test".to_string(),
@@ -289,7 +289,7 @@ fn test_apply_response_creates_memory() {
     let mem = store
         .save(
             CreateMemoryInput {
-            encrypt: false,
+                encrypt: false,
                 project: "apply-test".to_string(),
                 scope: Some(Scope::Project),
                 title: "Apply Test".to_string(),

@@ -76,7 +76,9 @@ fn map_err(e: crate::error::MnemeError) -> (StatusCode, Json<ApiError>) {
         crate::error::MnemeError::SyncFailed { .. } => {
             (StatusCode::INTERNAL_SERVER_ERROR, "SYNC_FAILED")
         }
-        crate::error::MnemeError::SyncDisabled => (StatusCode::SERVICE_UNAVAILABLE, "SYNC_DISABLED"),
+        crate::error::MnemeError::SyncDisabled => {
+            (StatusCode::SERVICE_UNAVAILABLE, "SYNC_DISABLED")
+        }
         crate::error::MnemeError::UnsupportedTransport(_) => {
             (StatusCode::BAD_REQUEST, "UNSUPPORTED_TRANSPORT")
         }
@@ -98,12 +100,9 @@ fn map_err(e: crate::error::MnemeError) -> (StatusCode, Json<ApiError>) {
         crate::error::MnemeError::AlreadyEncrypted(_) => {
             (StatusCode::CONFLICT, "ALREADY_ENCRYPTED")
         }
-        crate::error::MnemeError::NotEncrypted(_) => {
-            (StatusCode::CONFLICT, "NOT_ENCRYPTED")
-        }
-        crate::error::MnemeError::KeyNotFound(_) => {
-            (StatusCode::NOT_FOUND, "KEY_NOT_FOUND")
-        }
+        crate::error::MnemeError::NotEncrypted(_) => (StatusCode::CONFLICT, "NOT_ENCRYPTED"),
+        crate::error::MnemeError::KeyNotFound(_) => (StatusCode::NOT_FOUND, "KEY_NOT_FOUND"),
+        crate::error::MnemeError::Plugin(_) => (StatusCode::INTERNAL_SERVER_ERROR, "PLUGIN_ERROR"),
     };
     (status, Json(ApiError::new(code, &e.to_string())))
 }
@@ -380,25 +379,23 @@ pub async fn search_memories(
     let semantic_scores = if let Some(engine) = embeddings {
         let embedding_store = db.embeddings();
         match engine.embed(&body.text).await {
-            Ok(query_embedding) => {
-                match embedding_store.load_all_for_project(&project) {
-                    Ok(all_embeddings) => {
-                        let mut scores = std::collections::HashMap::new();
-                        for (id, embedding) in all_embeddings {
-                            let score = crate::embeddings::similarity::cosine_similarity(
-                                &query_embedding,
-                                &embedding,
-                            );
-                            scores.insert(id, score);
-                        }
-                        Some(scores)
+            Ok(query_embedding) => match embedding_store.load_all_for_project(&project) {
+                Ok(all_embeddings) => {
+                    let mut scores = std::collections::HashMap::new();
+                    for (id, embedding) in all_embeddings {
+                        let score = crate::embeddings::similarity::cosine_similarity(
+                            &query_embedding,
+                            &embedding,
+                        );
+                        scores.insert(id, score);
                     }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "failed to load embeddings for search");
-                        None
-                    }
+                    Some(scores)
                 }
-            }
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to load embeddings for search");
+                    None
+                }
+            },
             Err(e) => {
                 tracing::warn!(error = %e, "failed to embed query for search");
                 None
@@ -633,7 +630,9 @@ pub async fn import_memories(
             capture_prompt: None,
             encrypt: false,
         };
-        store.save(input, engine.clone(), Some(embedding_store.clone())).map_err(map_err)?;
+        store
+            .save(input, engine.clone(), Some(embedding_store.clone()))
+            .map_err(map_err)?;
         count += 1;
     }
     Ok(Json(json!({"imported": count})))
@@ -746,7 +745,9 @@ pub async fn similar_memories(
         engine.embed(&body.query).await.map_err(map_err)?
     };
 
-    let all_embeddings = embedding_store.load_all_for_project(&project).map_err(map_err)?;
+    let all_embeddings = embedding_store
+        .load_all_for_project(&project)
+        .map_err(map_err)?;
     let mut matches = Vec::new();
     for (id, embedding) in all_embeddings {
         let score = crate::embeddings::similarity::cosine_similarity(&query_embedding, &embedding);
@@ -1153,7 +1154,10 @@ pub async fn get_remind(
 ) -> ApiResult<Vec<Memory>> {
     let project = query.project.unwrap_or_else(Settings::infer_project);
     let importance = query.importance.parse().map_err(map_err)?;
-    let memories = db.memories().remind(&project, &importance).map_err(map_err)?;
+    let memories = db
+        .memories()
+        .remind(&project, &importance)
+        .map_err(map_err)?;
     Ok(Json(memories))
 }
 
@@ -1206,7 +1210,8 @@ pub async fn sync_hello(
     Json(body): Json<SyncHello>,
 ) -> ApiResult<SyncHello> {
     let settings = Settings::load().map_err(map_err)?;
-    let engine = crate::sync::engine::SyncEngine::new(db, settings.sync.clone()).map_err(map_err)?;
+    let engine =
+        crate::sync::engine::SyncEngine::new(db, settings.sync.clone()).map_err(map_err)?;
     let hello = engine.build_hello(&body.project).map_err(map_err)?;
     Ok(Json(hello))
 }
@@ -1216,7 +1221,8 @@ pub async fn sync_pull(
     Json(body): Json<SyncRequest>,
 ) -> ApiResult<SyncResponse> {
     let settings = Settings::load().map_err(map_err)?;
-    let engine = crate::sync::engine::SyncEngine::new(db, settings.sync.clone()).map_err(map_err)?;
+    let engine =
+        crate::sync::engine::SyncEngine::new(db, settings.sync.clone()).map_err(map_err)?;
     let response = engine.build_response(&body).map_err(map_err)?;
     Ok(Json(response))
 }
@@ -1226,7 +1232,8 @@ pub async fn sync_push(
     Json(body): Json<SyncResponse>,
 ) -> ApiResult<serde_json::Value> {
     let settings = Settings::load().map_err(map_err)?;
-    let engine = crate::sync::engine::SyncEngine::new(db, settings.sync.clone()).map_err(map_err)?;
+    let engine =
+        crate::sync::engine::SyncEngine::new(db, settings.sync.clone()).map_err(map_err)?;
     let stats = engine.apply_response(&body).map_err(map_err)?;
     Ok(Json(json!({
         "applied": stats.memories_applied,
@@ -1261,7 +1268,9 @@ pub async fn decrypt_memory(
 // --- Keys ---
 
 /// GET /api/v1/keys
-pub async fn list_keys(State(db): State<Arc<Database>>) -> ApiResult<Vec<crate::crypto::RegisteredKey>> {
+pub async fn list_keys(
+    State(db): State<Arc<Database>>,
+) -> ApiResult<Vec<crate::crypto::RegisteredKey>> {
     let key_store = crate::crypto::KeyStore::new(db.get_conn());
     let keys = key_store.list().map_err(map_err)?;
     Ok(Json(keys))

@@ -1,8 +1,8 @@
-use std::sync::{Arc, Mutex};
+use crate::crypto::keys::RecipientKey;
 use chrono::Utc;
 use rusqlite::params;
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
-use crate::crypto::keys::RecipientKey;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RegisteredKey {
@@ -28,11 +28,20 @@ impl KeyStore {
     pub fn add(&self, alias: &str, key: &RecipientKey) -> crate::error::Result<RegisteredKey> {
         let id = Uuid::new_v4();
         let now = Utc::now().to_rfc3339();
-        let conn = self.conn.lock().map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
         conn.execute(
             "INSERT INTO encryption_keys (id, alias, key_type, public_key, is_default, added_at)
              VALUES (?1, ?2, ?3, ?4, 0, ?5)",
-            params![id.to_string(), alias, key.key_type(), key.public_key_string(), now],
+            params![
+                id.to_string(),
+                alias,
+                key.key_type(),
+                key.public_key_string(),
+                now
+            ],
         )?;
         Ok(RegisteredKey {
             id,
@@ -46,8 +55,14 @@ impl KeyStore {
 
     /// Elimina una clave por ID.
     pub fn remove(&self, key_id: Uuid) -> crate::error::Result<()> {
-        let conn = self.conn.lock().map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
-        let n = conn.execute("DELETE FROM encryption_keys WHERE id = ?1", params![key_id.to_string()])?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+        let n = conn.execute(
+            "DELETE FROM encryption_keys WHERE id = ?1",
+            params![key_id.to_string()],
+        )?;
         if n == 0 {
             return Err(crate::error::MnemeError::KeyNotFound(key_id.to_string()));
         }
@@ -56,24 +71,42 @@ impl KeyStore {
 
     /// Lista todas las claves registradas.
     pub fn list(&self) -> crate::error::Result<Vec<RegisteredKey>> {
-        let conn = self.conn.lock().map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
         let mut stmt = conn.prepare(
             "SELECT id, alias, key_type, public_key, is_default, added_at FROM encryption_keys ORDER BY added_at DESC"
         )?;
-        let keys = stmt.query_map([], |row| {
-            let id_str: String = row.get(0)?;
-            let added_str: String = row.get(5)?;
-            Ok((id_str, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, bool>(4)?, added_str))
-        })?
-        .filter_map(|r| r.ok())
-        .map(|(id_s, alias, key_type, public_key, is_default, added_s)| {
-            let id = Uuid::parse_str(&id_s).unwrap_or_else(|_| Uuid::new_v4());
-            let added_at = chrono::DateTime::parse_from_rfc3339(&added_s)
-                .map(|d| d.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now());
-            RegisteredKey { id, alias, key_type, public_key, is_default, added_at }
-        })
-        .collect();
+        let keys = stmt
+            .query_map([], |row| {
+                let id_str: String = row.get(0)?;
+                let added_str: String = row.get(5)?;
+                Ok((
+                    id_str,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, bool>(4)?,
+                    added_str,
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .map(|(id_s, alias, key_type, public_key, is_default, added_s)| {
+                let id = Uuid::parse_str(&id_s).unwrap_or_else(|_| Uuid::new_v4());
+                let added_at = chrono::DateTime::parse_from_rfc3339(&added_s)
+                    .map(|d| d.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now());
+                RegisteredKey {
+                    id,
+                    alias,
+                    key_type,
+                    public_key,
+                    is_default,
+                    added_at,
+                }
+            })
+            .collect();
         Ok(keys)
     }
 
@@ -85,9 +118,15 @@ impl KeyStore {
 
     /// Marca una clave como default (desmarca las demás).
     pub fn set_default(&self, key_id: Uuid) -> crate::error::Result<()> {
-        let conn = self.conn.lock().map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
         conn.execute("UPDATE encryption_keys SET is_default = 0", [])?;
-        let n = conn.execute("UPDATE encryption_keys SET is_default = 1 WHERE id = ?1", params![key_id.to_string()])?;
+        let n = conn.execute(
+            "UPDATE encryption_keys SET is_default = 1 WHERE id = ?1",
+            params![key_id.to_string()],
+        )?;
         if n == 0 {
             return Err(crate::error::MnemeError::KeyNotFound(key_id.to_string()));
         }

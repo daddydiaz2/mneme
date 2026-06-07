@@ -11,7 +11,9 @@ pub fn run_migrations(conn: &mut Connection) -> crate::error::Result<()> {
         M::up(include_str!("../../migrations/005_sync.sql")),
         M::up(include_str!("../../migrations/006_sync_origin.sql")),
         M::up(include_str!("../../migrations/007_encryption.sql")),
-        M::up(include_str!("../../migrations/008_fts5_encryption_aware.sql")),
+        M::up(include_str!(
+            "../../migrations/008_fts5_encryption_aware.sql"
+        )),
     ]);
     migrations.to_latest(conn)?;
     Ok(())

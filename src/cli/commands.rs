@@ -379,13 +379,9 @@ pub enum KeysCommands {
         default: bool,
     },
     /// Eliminar clave registrada por alias o ID
-    Remove {
-        alias_or_id: String,
-    },
+    Remove { alias_or_id: String },
     /// Marcar clave como default
-    SetDefault {
-        alias_or_id: String,
-    },
+    SetDefault { alias_or_id: String },
     /// Detectar claves SSH disponibles en el sistema
     Detect,
     /// Verificar que la identidad de desencriptación funciona
@@ -657,17 +653,17 @@ pub fn run_command(
             AgentSetup::ClaudeCode => setup_claude_code()?,
             AgentSetup::Continue => setup_continue()?,
         },
-        Commands::Export { project, output, format } => {
+        Commands::Export {
+            project,
+            output,
+            format,
+        } => {
             let project = project.unwrap_or_else(Settings::infer_project);
             let memories = db.memories().list(&project, None, None, None, 10000, 0)?;
 
             let (content, default_ext) = match format.as_str() {
-                "md" | "markdown" => {
-                    (crate::export::export_to_markdown(&memories, &project), "md")
-                }
-                _ => {
-                    (serde_json::to_string_pretty(&memories)?, "json")
-                }
+                "md" | "markdown" => (crate::export::export_to_markdown(&memories, &project), "md"),
+                _ => (serde_json::to_string_pretty(&memories)?, "json"),
             };
 
             let output_path = output.unwrap_or_else(|| {
@@ -753,7 +749,11 @@ pub fn run_command(
                 print_doctor_report(&report);
             }
         }
-        Commands::Reindex { project, force: _force, json } => {
+        Commands::Reindex {
+            project,
+            force: _force,
+            json,
+        } => {
             let project = project.unwrap_or_else(Settings::infer_project);
             match embeddings {
                 Some(engine) => {
@@ -818,7 +818,11 @@ pub fn run_command(
             db.memories().delete_relation(id)?;
             output::print_success(&format!("Relation deleted: {}", relation_id));
         }
-        Commands::Audit { project, days_threshold, json } => {
+        Commands::Audit {
+            project,
+            days_threshold,
+            json,
+        } => {
             let project = project.unwrap_or_else(Settings::infer_project);
             let report = db.memories().audit(&project, days_threshold)?;
             if json {
@@ -830,18 +834,28 @@ pub fn run_command(
         Commands::Deduplicate { project, threshold } => {
             let project = project.unwrap_or_else(Settings::infer_project);
             let embedding_store = db.embeddings();
-            let groups = db
-                .memories()
-                .find_duplicates_semantic(&project, threshold, &embedding_store)?;
+            let groups =
+                db.memories()
+                    .find_duplicates_semantic(&project, threshold, &embedding_store)?;
             output::print_duplicate_groups(&groups);
         }
-        Commands::Feedback { memory_id, is_useful, reason } => {
+        Commands::Feedback {
+            memory_id,
+            is_useful,
+            reason,
+        } => {
             let id = Uuid::parse_str(&memory_id)
                 .map_err(|e| crate::error::MnemeError::Config(e.to_string()))?;
-            let feedback_id = db.memories().add_feedback(id, is_useful, reason.as_deref())?;
+            let feedback_id = db
+                .memories()
+                .add_feedback(id, is_useful, reason.as_deref())?;
             output::print_success(&format!("Feedback recorded: {}", feedback_id));
         }
-        Commands::Deprecate { memory_id, reason, supersedes_id } => {
+        Commands::Deprecate {
+            memory_id,
+            reason,
+            supersedes_id,
+        } => {
             let id = Uuid::parse_str(&memory_id)
                 .map_err(|e| crate::error::MnemeError::Config(e.to_string()))?;
             let supersedes = supersedes_id
@@ -861,7 +875,10 @@ pub fn run_command(
                 output::print_graph(&graph);
             }
         }
-        Commands::Summarize { project, session_id } => {
+        Commands::Summarize {
+            project,
+            session_id,
+        } => {
             let project = project.unwrap_or_else(Settings::infer_project);
             let sid = session_id
                 .as_deref()
@@ -871,7 +888,11 @@ pub fn run_command(
             let summary = db.memories().summarize(&project, sid)?;
             println!("{}", summary.summary);
         }
-        Commands::InjectContext { project, file, limit } => {
+        Commands::InjectContext {
+            project,
+            file,
+            limit,
+        } => {
             let project = project.unwrap_or_else(Settings::infer_project);
             let context = db
                 .memories()
@@ -885,7 +906,10 @@ pub fn run_command(
             }
             let project = project.unwrap_or_else(Settings::infer_project);
             let deleted = db.memories().forget_project(&project)?;
-            output::print_success(&format!("Deleted {} memories for project '{}'", deleted, project));
+            output::print_success(&format!(
+                "Deleted {} memories for project '{}'",
+                deleted, project
+            ));
         }
         Commands::Health { project, json } => {
             let report = db.memories().health(project.as_deref())?;
@@ -895,13 +919,20 @@ pub fn run_command(
                 output::print_health(&report);
             }
         }
-        Commands::Remind { project, importance } => {
+        Commands::Remind {
+            project,
+            importance,
+        } => {
             let project = project.unwrap_or_else(Settings::infer_project);
             let imp = importance.parse()?;
             let memories = db.memories().remind(&project, &imp)?;
             output::print_remind(&memories);
         }
-        Commands::TagSuggest { project, title, content } => {
+        Commands::TagSuggest {
+            project,
+            title,
+            content,
+        } => {
             let project = project.unwrap_or_else(Settings::infer_project);
             let tags = db
                 .memories()
@@ -927,7 +958,13 @@ pub fn run_command(
                     let peers = db.peers().list(&project)?;
                     output::print_peer_list(&peers);
                 }
-                SyncCommands::AddPeer { name, address, transport, project, auto_sync } => {
+                SyncCommands::AddPeer {
+                    name,
+                    address,
+                    transport,
+                    project,
+                    auto_sync,
+                } => {
                     let project = project.unwrap_or_else(Settings::infer_project);
                     let transport = TransportType::from_str(&transport)?;
                     let peer = Peer {
@@ -953,10 +990,8 @@ pub fn run_command(
                 SyncCommands::Now { project } => {
                     let project = project.unwrap_or_else(Settings::infer_project);
                     let settings = Settings::load()?;
-                    let engine = crate::sync::engine::SyncEngine::new(
-                        Arc::new(db.clone()),
-                        settings.sync,
-                    )?;
+                    let engine =
+                        crate::sync::engine::SyncEngine::new(Arc::new(db.clone()), settings.sync)?;
                     let rt = tokio::runtime::Runtime::new()?;
                     let results = rt.block_on(async { engine.sync_auto(&project).await })?;
                     output::print_sync_result(&results);
@@ -964,10 +999,8 @@ pub fn run_command(
                 SyncCommands::Export { project, output } => {
                     let project = project.unwrap_or_else(Settings::infer_project);
                     let settings = Settings::load()?;
-                    let engine = crate::sync::engine::SyncEngine::new(
-                        Arc::new(db.clone()),
-                        settings.sync,
-                    )?;
+                    let engine =
+                        crate::sync::engine::SyncEngine::new(Arc::new(db.clone()), settings.sync)?;
                     let stats = engine.export_project(&project, output)?;
                     output::print_sync_status(&stats);
                 }
@@ -997,11 +1030,21 @@ pub fn run_command(
                         println!("{:<20} {:<15} {:<8} AGREGADA", "ALIAS", "TIPO", "DEFAULT");
                         println!("{}", "─".repeat(60));
                         for k in &keys {
-                            println!("{:<20} {:<15} {:<8} {}", k.alias, k.key_type, if k.is_default { "✓" } else { "✗" }, k.added_at.format("%Y-%m-%d"));
+                            println!(
+                                "{:<20} {:<15} {:<8} {}",
+                                k.alias,
+                                k.key_type,
+                                if k.is_default { "✓" } else { "✗" },
+                                k.added_at.format("%Y-%m-%d")
+                            );
                         }
                     }
                 }
-                KeysCommands::Add { alias, key, default } => {
+                KeysCommands::Add {
+                    alias,
+                    key,
+                    default,
+                } => {
                     let recipient = crate::crypto::RecipientKey::from_string(&key)?;
                     let registered = key_store.add(&alias, &recipient)?;
                     if default {
@@ -1011,14 +1054,18 @@ pub fn run_command(
                 }
                 KeysCommands::Remove { alias_or_id } => {
                     let keys = key_store.list()?;
-                    let target = keys.iter().find(|k| k.alias == *alias_or_id || k.id.to_string() == *alias_or_id)
+                    let target = keys
+                        .iter()
+                        .find(|k| k.alias == *alias_or_id || k.id.to_string() == *alias_or_id)
                         .ok_or_else(|| crate::MnemeError::KeyNotFound(alias_or_id.clone()))?;
                     key_store.remove(target.id)?;
                     println!("✓ Clave '{}' eliminada", alias_or_id);
                 }
                 KeysCommands::SetDefault { alias_or_id } => {
                     let keys = key_store.list()?;
-                    let target = keys.iter().find(|k| k.alias == *alias_or_id || k.id.to_string() == *alias_or_id)
+                    let target = keys
+                        .iter()
+                        .find(|k| k.alias == *alias_or_id || k.id.to_string() == *alias_or_id)
                         .ok_or_else(|| crate::MnemeError::KeyNotFound(alias_or_id.clone()))?;
                     key_store.set_default(target.id)?;
                     println!("✓ '{}' marcada como default", alias_or_id);
@@ -1031,18 +1078,20 @@ pub fn run_command(
                             let pub_key = home.join(format!("{}.pub", name));
                             let priv_key = home.join(name);
                             if priv_key.exists() {
-                                let available = if pub_key.exists() { "✓ disponible" } else { "pub key no encontrada" };
+                                let available = if pub_key.exists() {
+                                    "✓ disponible"
+                                } else {
+                                    "pub key no encontrada"
+                                };
                                 println!("  ~/.ssh/{}    {}", name, available);
                             }
                         }
                     }
                 }
-                KeysCommands::Test => {
-                    match crate::crypto::IdentityKey::detect() {
-                        Ok(id) => println!("✓ Identidad disponible: {}", id.path().display()),
-                        Err(e) => println!("✗ Identidad no disponible: {}", e),
-                    }
-                }
+                KeysCommands::Test => match crate::crypto::IdentityKey::detect() {
+                    Ok(id) => println!("✓ Identidad disponible: {}", id.path().display()),
+                    Err(e) => println!("✗ Identidad no disponible: {}", e),
+                },
             }
         }
         Commands::Watch { .. } => {

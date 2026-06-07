@@ -17,7 +17,7 @@ fn test_save_and_get_memory() {
     let store = db.memories();
 
     let input = CreateMemoryInput {
-            encrypt: false,
+        encrypt: false,
         project: "test-project".to_string(),
         scope: Some(Scope::Project),
         title: "Test Memory".to_string(),
@@ -48,7 +48,7 @@ fn test_soft_delete() {
     let store = db.memories();
 
     let input = CreateMemoryInput {
-            encrypt: false,
+        encrypt: false,
         project: "test".to_string(),
         scope: Some(Scope::Project),
         title: "To Delete".to_string(),
@@ -76,7 +76,7 @@ fn test_dedupe_detection() {
     let store = db.memories();
 
     let input = CreateMemoryInput {
-            encrypt: false,
+        encrypt: false,
         project: "test".to_string(),
         scope: Some(Scope::Project),
         title: "Duplicate Title".to_string(),
@@ -105,7 +105,7 @@ fn test_topic_key_upsert() {
     let store = db.memories();
 
     let input1 = CreateMemoryInput {
-            encrypt: false,
+        encrypt: false,
         project: "test".to_string(),
         scope: Some(Scope::Project),
         title: "Auth v1".to_string(),
@@ -122,7 +122,7 @@ fn test_topic_key_upsert() {
     };
 
     let input2 = CreateMemoryInput {
-            encrypt: false,
+        encrypt: false,
         project: "test".to_string(),
         scope: Some(Scope::Project),
         title: "Auth v2".to_string(),
@@ -154,7 +154,7 @@ fn test_search_fts5() {
     store
         .save(
             CreateMemoryInput {
-            encrypt: false,
+                encrypt: false,
                 project: "test".to_string(),
                 scope: Some(Scope::Project),
                 title: "Rust Performance".to_string(),
@@ -215,7 +215,7 @@ fn test_stats() {
     store
         .save(
             CreateMemoryInput {
-            encrypt: false,
+                encrypt: false,
                 project: "stats-test".to_string(),
                 scope: Some(Scope::Project),
                 title: "One".to_string(),

@@ -18,7 +18,7 @@ fn test_import_export_roundtrip() {
         store
             .save(
                 CreateMemoryInput {
-            encrypt: false,
+                    encrypt: false,
                     project: "export-test".to_string(),
                     scope: Some(Scope::Project),
                     title: format!("Memory {}", i),
@@ -54,7 +54,7 @@ fn test_import_export_roundtrip() {
         store2
             .save(
                 CreateMemoryInput {
-            encrypt: false,
+                    encrypt: false,
                     project: mem.project.clone(),
                     scope: Some(mem.scope.clone()),
                     title: mem.title.clone(),
@@ -89,7 +89,7 @@ fn test_scope_isolation() {
     store
         .save(
             CreateMemoryInput {
-            encrypt: false,
+                encrypt: false,
                 project: "scope-test".to_string(),
                 scope: Some(Scope::Project),
                 title: "Project Note".to_string(),
@@ -112,7 +112,7 @@ fn test_scope_isolation() {
     store
         .save(
             CreateMemoryInput {
-            encrypt: false,
+                encrypt: false,
                 project: "scope-test".to_string(),
                 scope: Some(Scope::Personal),
                 title: "Personal Note".to_string(),
@@ -153,7 +153,7 @@ fn test_doctor_reports_health() {
     store
         .save(
             CreateMemoryInput {
-            encrypt: false,
+                encrypt: false,
                 project: "doctor-test".to_string(),
                 scope: Some(Scope::Project),
                 title: "Test".to_string(),
@@ -229,26 +229,28 @@ fn test_audit_finds_issues() {
     let db = setup_db();
     let store = db.memories();
 
-    store.save(
-        CreateMemoryInput {
-            encrypt: false,
-            project: "audit-test".to_string(),
-            scope: Some(Scope::Project),
-            title: "Untagged".to_string(),
-            content: "X".to_string(),
-            what: None,
-            why: None,
-            context: None,
-            learned: None,
-            memory_type: MemoryType::Note,
-            importance: Importance::Medium,
-            tags: vec![],
-            topic_key: None,
-            capture_prompt: None,
-        },
-        None,
-        None,
-    ).unwrap();
+    store
+        .save(
+            CreateMemoryInput {
+                encrypt: false,
+                project: "audit-test".to_string(),
+                scope: Some(Scope::Project),
+                title: "Untagged".to_string(),
+                content: "X".to_string(),
+                what: None,
+                why: None,
+                context: None,
+                learned: None,
+                memory_type: MemoryType::Note,
+                importance: Importance::Medium,
+                tags: vec![],
+                topic_key: None,
+                capture_prompt: None,
+            },
+            None,
+            None,
+        )
+        .unwrap();
 
     let report = store.audit("audit-test", 0).unwrap();
     assert!(!report.short_memories.is_empty());
@@ -261,26 +263,28 @@ fn test_deprecate_memory() {
     let db = setup_db();
     let store = db.memories();
 
-    let mem = store.save(
-        CreateMemoryInput {
-            encrypt: false,
-            project: "deprecate-test".to_string(),
-            scope: Some(Scope::Project),
-            title: "To Deprecate".to_string(),
-            content: "Old content".to_string(),
-            what: None,
-            why: None,
-            context: None,
-            learned: None,
-            memory_type: MemoryType::Note,
-            importance: Importance::Medium,
-            tags: vec![],
-            topic_key: None,
-            capture_prompt: None,
-        },
-        None,
-        None,
-    ).unwrap();
+    let mem = store
+        .save(
+            CreateMemoryInput {
+                encrypt: false,
+                project: "deprecate-test".to_string(),
+                scope: Some(Scope::Project),
+                title: "To Deprecate".to_string(),
+                content: "Old content".to_string(),
+                what: None,
+                why: None,
+                context: None,
+                learned: None,
+                memory_type: MemoryType::Note,
+                importance: Importance::Medium,
+                tags: vec![],
+                topic_key: None,
+                capture_prompt: None,
+            },
+            None,
+            None,
+        )
+        .unwrap();
 
     let updated = store.deprecate(mem.id, "Outdated", None).unwrap();
     assert!(updated.deprecated_at.is_some());
@@ -292,57 +296,61 @@ fn test_graph_structure() {
     let db = setup_db();
     let store = db.memories();
 
-    let m1 = store.save(
-        CreateMemoryInput {
-            encrypt: false,
-            project: "graph-test".to_string(),
-            scope: Some(Scope::Project),
-            title: "Node 1".to_string(),
-            content: "Content".to_string(),
-            what: None,
-            why: None,
-            context: None,
-            learned: None,
-            memory_type: MemoryType::Architecture,
-            importance: Importance::High,
-            tags: vec![],
-            topic_key: None,
-            capture_prompt: None,
-        },
-        None,
-        None,
-    ).unwrap();
+    let m1 = store
+        .save(
+            CreateMemoryInput {
+                encrypt: false,
+                project: "graph-test".to_string(),
+                scope: Some(Scope::Project),
+                title: "Node 1".to_string(),
+                content: "Content".to_string(),
+                what: None,
+                why: None,
+                context: None,
+                learned: None,
+                memory_type: MemoryType::Architecture,
+                importance: Importance::High,
+                tags: vec![],
+                topic_key: None,
+                capture_prompt: None,
+            },
+            None,
+            None,
+        )
+        .unwrap();
 
-    let m2 = store.save(
-        CreateMemoryInput {
-            encrypt: false,
-            project: "graph-test".to_string(),
-            scope: Some(Scope::Project),
-            title: "Node 2".to_string(),
-            content: "Content".to_string(),
-            what: None,
-            why: None,
-            context: None,
-            learned: None,
-            memory_type: MemoryType::Decision,
-            importance: Importance::Medium,
-            tags: vec![],
-            topic_key: None,
-            capture_prompt: None,
-        },
-        None,
-        None,
-    ).unwrap();
+    let m2 = store
+        .save(
+            CreateMemoryInput {
+                encrypt: false,
+                project: "graph-test".to_string(),
+                scope: Some(Scope::Project),
+                title: "Node 2".to_string(),
+                content: "Content".to_string(),
+                what: None,
+                why: None,
+                context: None,
+                learned: None,
+                memory_type: MemoryType::Decision,
+                importance: Importance::Medium,
+                tags: vec![],
+                topic_key: None,
+                capture_prompt: None,
+            },
+            None,
+            None,
+        )
+        .unwrap();
 
-    store.create_relation(
-        mneme::store::memory::CreateRelationInput {
+    store
+        .create_relation(mneme::store::memory::CreateRelationInput {
             source_id: m1.id,
             target_id: m2.id,
             relation_type: mneme::store::memory::RelationType::DependsOn,
             confidence: Some(0.9),
             reason: Some("test".to_string()),
-        }
-    ).unwrap();
+        })
+        .unwrap();
 
     let graph = store.get_graph("graph-test").unwrap();
     assert_eq!(graph.nodes.len(), 2);
@@ -355,26 +363,28 @@ fn test_health_report() {
     let db = setup_db();
     let store = db.memories();
 
-    store.save(
-        CreateMemoryInput {
-            encrypt: false,
-            project: "health-test".to_string(),
-            scope: Some(Scope::Project),
-            title: "Health".to_string(),
-            content: "Content".to_string(),
-            what: None,
-            why: None,
-            context: None,
-            learned: None,
-            memory_type: MemoryType::Note,
-            importance: Importance::Medium,
-            tags: vec![],
-            topic_key: None,
-            capture_prompt: None,
-        },
-        None,
-        None,
-    ).unwrap();
+    store
+        .save(
+            CreateMemoryInput {
+                encrypt: false,
+                project: "health-test".to_string(),
+                scope: Some(Scope::Project),
+                title: "Health".to_string(),
+                content: "Content".to_string(),
+                what: None,
+                why: None,
+                context: None,
+                learned: None,
+                memory_type: MemoryType::Note,
+                importance: Importance::Medium,
+                tags: vec![],
+                topic_key: None,
+                capture_prompt: None,
+            },
+            None,
+            None,
+        )
+        .unwrap();
 
     let report = store.health(Some("health-test")).unwrap();
     assert_eq!(report.total_memories, 1);
@@ -386,26 +396,28 @@ fn test_remind_returns_important() {
     let db = setup_db();
     let store = db.memories();
 
-    store.save(
-        CreateMemoryInput {
-            encrypt: false,
-            project: "remind-test".to_string(),
-            scope: Some(Scope::Project),
-            title: "Critical".to_string(),
-            content: "Important info".to_string(),
-            what: None,
-            why: None,
-            context: None,
-            learned: None,
-            memory_type: MemoryType::Decision,
-            importance: Importance::Critical,
-            tags: vec![],
-            topic_key: None,
-            capture_prompt: None,
-        },
-        None,
-        None,
-    ).unwrap();
+    store
+        .save(
+            CreateMemoryInput {
+                encrypt: false,
+                project: "remind-test".to_string(),
+                scope: Some(Scope::Project),
+                title: "Critical".to_string(),
+                content: "Important info".to_string(),
+                what: None,
+                why: None,
+                context: None,
+                learned: None,
+                memory_type: MemoryType::Decision,
+                importance: Importance::Critical,
+                tags: vec![],
+                topic_key: None,
+                capture_prompt: None,
+            },
+            None,
+            None,
+        )
+        .unwrap();
 
     let memories = store.remind("remind-test", &Importance::High).unwrap();
     assert!(!memories.is_empty());

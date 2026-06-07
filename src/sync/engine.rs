@@ -11,8 +11,8 @@ use crate::store::db::Database;
 use crate::sync::crdt;
 use crate::sync::peer::{Peer, TransportType};
 use crate::sync::protocol::{
-    ApplyStats, ExportStats, MemoryChangeset, SyncDirection, SyncHello, SyncRequest,
-    SyncResponse, SyncResult, SyncStatus,
+    ApplyStats, ExportStats, MemoryChangeset, SyncDirection, SyncHello, SyncRequest, SyncResponse,
+    SyncResult, SyncStatus,
 };
 use crate::sync::transport::file::FileTransport;
 use crate::sync::transport::http::HttpTransport;
@@ -99,7 +99,11 @@ impl SyncEngine {
     }
 
     /// Exporta un proyecto a archivo.
-    pub fn export_project(&self, project: &str, output: Option<std::path::PathBuf>) -> Result<ExportStats> {
+    pub fn export_project(
+        &self,
+        project: &str,
+        output: Option<std::path::PathBuf>,
+    ) -> Result<ExportStats> {
         let conn_arc = self.db.get_conn();
         let conn = conn_arc
             .lock()
@@ -126,7 +130,8 @@ impl SyncEngine {
         }
 
         let dir = output.unwrap_or_else(|| {
-            let mut path = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let mut path =
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             path.push("sync_exports");
             path
         });
@@ -134,7 +139,11 @@ impl SyncEngine {
         let transport = FileTransport::new(dir)?;
         let (_, stats) = transport.export(project, &changes)?;
 
-        tracing::info!("exported project {}: {} memories", project, stats.memories_exported);
+        tracing::info!(
+            "exported project {}: {} memories",
+            project,
+            stats.memories_exported
+        );
         Ok(ExportStats {
             memories_exported: stats.memories_exported,
             bytes_written: stats.bytes_written,
@@ -290,11 +299,13 @@ impl SyncEngine {
 
         if change.is_full_doc {
             let memory = crdt::doc_to_memory(&change.payload)?;
-            let exists: bool = conn.query_row(
-                "SELECT 1 FROM sync_state WHERE automerge_id = ?1",
-                params![&change.automerge_id],
-                |_| Ok(true),
-            ).unwrap_or(false);
+            let exists: bool = conn
+                .query_row(
+                    "SELECT 1 FROM sync_state WHERE automerge_id = ?1",
+                    params![&change.automerge_id],
+                    |_| Ok(true),
+                )
+                .unwrap_or(false);
 
             if exists {
                 let existing_bytes: Vec<u8> = conn.query_row(

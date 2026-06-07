@@ -40,7 +40,7 @@ fn test_embedding_store_save_and_load() {
 
     // Create a memory first (foreign key constraint)
     let input = mneme::store::memory::CreateMemoryInput {
-            encrypt: false,
+        encrypt: false,
         project: "embed-test".to_string(),
         scope: Some(mneme::store::memory::Scope::Project),
         title: "Test".to_string(),
@@ -74,7 +74,7 @@ fn test_find_unindexed_returns_correct_ids() {
 
     // Create memory
     let input = mneme::store::memory::CreateMemoryInput {
-            encrypt: false,
+        encrypt: false,
         project: "unindexed-test".to_string(),
         scope: Some(mneme::store::memory::Scope::Project),
         title: "Test".to_string(),

@@ -1,7 +1,7 @@
 use mneme::crypto::{CryptoEngine, KeyStore, RecipientKey};
-use secrecy::ExposeSecret;
-use mneme::store::memory::{CreateMemoryInput, MemoryStore, MemoryType, Importance, Scope};
+use mneme::store::memory::{CreateMemoryInput, Importance, MemoryStore, MemoryType, Scope};
 use rusqlite::Connection;
+use secrecy::ExposeSecret;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
@@ -22,7 +22,9 @@ fn test_encrypt_decrypt_roundtrip_age_native() {
     let identity_str = identity.to_string();
     let tmp = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(tmp.path(), identity_str.expose_secret()).unwrap();
-    engine.load_identity_from_path(&tmp.path().to_path_buf()).unwrap();
+    engine
+        .load_identity_from_path(&tmp.path().to_path_buf())
+        .unwrap();
 
     let plaintext = "hello world secret";
     let ciphertext = engine.encrypt_str(plaintext).unwrap();
@@ -57,7 +59,8 @@ fn test_encrypt_with_ssh_key() {
 fn in_memory_store() -> Arc<Mutex<Connection>> {
     let conn = Connection::open_in_memory().unwrap();
     // Crear tabla mínima para tests
-    conn.execute_batch("
+    conn.execute_batch(
+        "
         CREATE TABLE memories (
             id TEXT PRIMARY KEY,
             project TEXT NOT NULL,
@@ -100,7 +103,9 @@ fn in_memory_store() -> Arc<Mutex<Connection>> {
             is_default INTEGER NOT NULL DEFAULT 0,
             added_at TEXT NOT NULL
         );
-    ").unwrap();
+    ",
+    )
+    .unwrap();
     Arc::new(Mutex::new(conn))
 }
 
@@ -113,7 +118,9 @@ fn test_save_encrypted_memory_stores_ciphertext() {
     let identity_str = identity.to_string();
     let tmp = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(tmp.path(), identity_str.expose_secret()).unwrap();
-    engine.load_identity_from_path(&tmp.path().to_path_buf()).unwrap();
+    engine
+        .load_identity_from_path(&tmp.path().to_path_buf())
+        .unwrap();
 
     let conn = in_memory_store();
     let store = MemoryStore::new(conn).with_crypto(Arc::new(Mutex::new(engine)));
@@ -149,7 +156,9 @@ fn test_save_encrypted_memory_stores_ciphertext() {
 fn test_key_store_add_and_list() {
     let conn = in_memory_store();
     let key_store = KeyStore::new(conn);
-    let key = RecipientKey::Age("age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3290gq".to_string());
+    let key = RecipientKey::Age(
+        "age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3290gq".to_string(),
+    );
     let result = key_store.add("test-key", &key);
     assert!(result.is_ok());
     let keys = key_store.list().unwrap();

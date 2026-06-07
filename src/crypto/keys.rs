@@ -12,8 +12,7 @@ pub enum RecipientKey {
 impl RecipientKey {
     /// Carga desde archivo de clave pública SSH.
     pub fn from_ssh_file(path: &PathBuf) -> crate::error::Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .map_err(crate::error::MnemeError::Io)?;
+        let content = std::fs::read_to_string(path).map_err(crate::error::MnemeError::Io)?;
         Ok(RecipientKey::Ssh(content.trim().to_string()))
     }
 

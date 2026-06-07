@@ -62,10 +62,7 @@ impl EmbeddingEngine {
     }
 
     /// Genera embeddings para un batch de textos.
-    pub async fn embed_batch(
-        &self,
-        texts: &[ String]
-    ) -> crate::error::Result<Vec<Vec<f32>>> {
+    pub async fn embed_batch(&self, texts: &[String]) -> crate::error::Result<Vec<Vec<f32>>> {
         let texts_owned: Vec<String> = texts.to_vec();
         let model = self.model.clone();
         let embeddings = tokio::task::spawn_blocking(move || {

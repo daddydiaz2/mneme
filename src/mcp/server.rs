@@ -22,6 +22,7 @@ pub struct MnemeServer {
     #[allow(dead_code)]
     current_session: Arc<RwLock<Option<Session>>>,
     embeddings: Option<Arc<crate::embeddings::engine::EmbeddingEngine>>,
+    plugins: Arc<crate::plugins::PluginManager>,
 }
 
 impl MnemeServer {
@@ -38,6 +39,12 @@ impl MnemeServer {
             current_project: Arc::new(RwLock::new(project)),
             current_session: Arc::new(RwLock::new(None)),
             embeddings,
+            plugins: Arc::new(
+                crate::plugins::PluginManager::load_from_default_dir().unwrap_or_else(|e| {
+                    tracing::warn!(error = %e, "plugin loading failed, continuing without plugins");
+                    crate::plugins::PluginManager::empty()
+                }),
+            ),
         }
     }
 
@@ -69,6 +76,7 @@ impl ServerHandler for MnemeServer {
             request.arguments,
             &project,
             self.embeddings.as_ref(),
+            Some(&self.plugins),
         )
         .await)
     }
@@ -80,7 +88,7 @@ impl ServerHandler for MnemeServer {
     ) -> Result<ListToolsResult, rmcp::Error> {
         Ok(ListToolsResult {
             next_cursor: None,
-            tools: crate::mcp::tools::list_tools(),
+            tools: crate::mcp::tools::list_tools(Some(&self.plugins)),
         })
     }
 

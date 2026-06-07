@@ -726,27 +726,68 @@ impl MemoryStore {
         let id = Uuid::new_v4();
         let now = Utc::now();
 
-        let (content_to_save, what_to_save, why_to_save, context_to_save, learned_to_save, is_encrypted, encrypted_for) =
-            if input.encrypt {
-                if let Some(crypto_arc) = &self.crypto {
-                    let crypto = crypto_arc.lock().map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
-                    if crypto.has_recipients() {
-                        let enc_content = crypto.encrypt_str(&input.content)?;
-                        let enc_what = input.what.as_deref().map(|s| crypto.encrypt_str(s)).transpose()?;
-                        let enc_why = input.why.as_deref().map(|s| crypto.encrypt_str(s)).transpose()?;
-                        let enc_ctx = input.context.as_deref().map(|s| crypto.encrypt_str(s)).transpose()?;
-                        let enc_learned = input.learned.as_deref().map(|s| crypto.encrypt_str(s)).transpose()?;
-                        let label = crypto.encrypted_for_label();
-                        (enc_content, enc_what, enc_why, enc_ctx, enc_learned, true, Some(label))
-                    } else {
-                        return Err(crate::error::MnemeError::NoRecipientsConfigured);
-                    }
+        let (
+            content_to_save,
+            what_to_save,
+            why_to_save,
+            context_to_save,
+            learned_to_save,
+            is_encrypted,
+            encrypted_for,
+        ) = if input.encrypt {
+            if let Some(crypto_arc) = &self.crypto {
+                let crypto = crypto_arc
+                    .lock()
+                    .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+                if crypto.has_recipients() {
+                    let enc_content = crypto.encrypt_str(&input.content)?;
+                    let enc_what = input
+                        .what
+                        .as_deref()
+                        .map(|s| crypto.encrypt_str(s))
+                        .transpose()?;
+                    let enc_why = input
+                        .why
+                        .as_deref()
+                        .map(|s| crypto.encrypt_str(s))
+                        .transpose()?;
+                    let enc_ctx = input
+                        .context
+                        .as_deref()
+                        .map(|s| crypto.encrypt_str(s))
+                        .transpose()?;
+                    let enc_learned = input
+                        .learned
+                        .as_deref()
+                        .map(|s| crypto.encrypt_str(s))
+                        .transpose()?;
+                    let label = crypto.encrypted_for_label();
+                    (
+                        enc_content,
+                        enc_what,
+                        enc_why,
+                        enc_ctx,
+                        enc_learned,
+                        true,
+                        Some(label),
+                    )
                 } else {
                     return Err(crate::error::MnemeError::NoRecipientsConfigured);
                 }
             } else {
-                (input.content.clone(), input.what.clone(), input.why.clone(), input.context.clone(), input.learned.clone(), false, None)
-            };
+                return Err(crate::error::MnemeError::NoRecipientsConfigured);
+            }
+        } else {
+            (
+                input.content.clone(),
+                input.what.clone(),
+                input.why.clone(),
+                input.context.clone(),
+                input.learned.clone(),
+                false,
+                None,
+            )
+        };
 
         let conn = self
             .conn
@@ -1073,34 +1114,58 @@ impl MemoryStore {
             Ok(mut memory) => {
                 if memory.is_encrypted {
                     if let Some(crypto_arc) = &self.crypto {
-                        let mut crypto = crypto_arc.lock().map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+                        let mut crypto = crypto_arc.lock().map_err(|_| {
+                            crate::error::MnemeError::Config("mutex poisoned".into())
+                        })?;
                         if crypto.can_decrypt() {
-                            memory.content = crypto.decrypt_str(&memory.content).unwrap_or_else(|_| "[ENCRIPTADO]".to_string());
+                            memory.content = crypto
+                                .decrypt_str(&memory.content)
+                                .unwrap_or_else(|_| "[ENCRIPTADO]".to_string());
                             if let Some(ref s) = memory.what {
-                                memory.what = Some(crypto.decrypt_str(s).unwrap_or_else(|_| "[ENCRIPTADO]".to_string()));
+                                memory.what = Some(
+                                    crypto
+                                        .decrypt_str(s)
+                                        .unwrap_or_else(|_| "[ENCRIPTADO]".to_string()),
+                                );
                             }
                             if let Some(ref s) = memory.why {
-                                memory.why = Some(crypto.decrypt_str(s).unwrap_or_else(|_| "[ENCRIPTADO]".to_string()));
+                                memory.why = Some(
+                                    crypto
+                                        .decrypt_str(s)
+                                        .unwrap_or_else(|_| "[ENCRIPTADO]".to_string()),
+                                );
                             }
                             if let Some(ref s) = memory.context {
-                                memory.context = Some(crypto.decrypt_str(s).unwrap_or_else(|_| "[ENCRIPTADO]".to_string()));
+                                memory.context = Some(
+                                    crypto
+                                        .decrypt_str(s)
+                                        .unwrap_or_else(|_| "[ENCRIPTADO]".to_string()),
+                                );
                             }
                             if let Some(ref s) = memory.learned {
-                                memory.learned = Some(crypto.decrypt_str(s).unwrap_or_else(|_| "[ENCRIPTADO]".to_string()));
+                                memory.learned = Some(
+                                    crypto
+                                        .decrypt_str(s)
+                                        .unwrap_or_else(|_| "[ENCRIPTADO]".to_string()),
+                                );
                             }
                         } else {
                             memory.content = "[ENCRIPTADO]".to_string();
                             memory.what = memory.what.as_ref().map(|_| "[ENCRIPTADO]".to_string());
                             memory.why = memory.why.as_ref().map(|_| "[ENCRIPTADO]".to_string());
-                            memory.context = memory.context.as_ref().map(|_| "[ENCRIPTADO]".to_string());
-                            memory.learned = memory.learned.as_ref().map(|_| "[ENCRIPTADO]".to_string());
+                            memory.context =
+                                memory.context.as_ref().map(|_| "[ENCRIPTADO]".to_string());
+                            memory.learned =
+                                memory.learned.as_ref().map(|_| "[ENCRIPTADO]".to_string());
                         }
                     } else {
                         memory.content = "[ENCRIPTADO]".to_string();
                         memory.what = memory.what.as_ref().map(|_| "[ENCRIPTADO]".to_string());
                         memory.why = memory.why.as_ref().map(|_| "[ENCRIPTADO]".to_string());
-                        memory.context = memory.context.as_ref().map(|_| "[ENCRIPTADO]".to_string());
-                        memory.learned = memory.learned.as_ref().map(|_| "[ENCRIPTADO]".to_string());
+                        memory.context =
+                            memory.context.as_ref().map(|_| "[ENCRIPTADO]".to_string());
+                        memory.learned =
+                            memory.learned.as_ref().map(|_| "[ENCRIPTADO]".to_string());
                     }
                 }
                 Ok(Some(memory))
@@ -1607,7 +1672,11 @@ impl MemoryStore {
                 }
             }
         }
-        tracing::info!(saved = saved.len(), duplicates = duplicates.len(), "batch save complete");
+        tracing::info!(
+            saved = saved.len(),
+            duplicates = duplicates.len(),
+            "batch save complete"
+        );
         Ok((saved, duplicates))
     }
 
@@ -1731,7 +1800,8 @@ impl MemoryStore {
         }
 
         let threshold_f32 = threshold as f32;
-        let mut adjacency: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+        let mut adjacency: std::collections::HashMap<usize, Vec<usize>> =
+            std::collections::HashMap::new();
 
         for i in 0..all.len() {
             for j in (i + 1)..all.len() {
@@ -1769,7 +1839,10 @@ impl MemoryStore {
                             visited[neighbor] = true;
                             queue.push_back(neighbor);
                         }
-                        let score = crate::embeddings::similarity::cosine_similarity(&all[node].1, &all[neighbor].1);
+                        let score = crate::embeddings::similarity::cosine_similarity(
+                            &all[node].1,
+                            &all[neighbor].1,
+                        );
                         if score > max_score {
                             max_score = score;
                         }
@@ -1814,7 +1887,12 @@ impl MemoryStore {
         conn.execute(
             "INSERT INTO memory_feedback (memory_id, is_useful, reason, created_at)
              VALUES (?1, ?2, ?3, ?4)",
-            params![memory_id.to_string(), if is_useful { 1 } else { 0 }, reason, now],
+            params![
+                memory_id.to_string(),
+                if is_useful { 1 } else { 0 },
+                reason,
+                now
+            ],
         )?;
         let id = conn.last_insert_rowid();
         tracing::info!(memory_id = %memory_id, feedback_id = id, "added feedback");
@@ -1860,7 +1938,7 @@ impl MemoryStore {
         let mut nodes = Vec::new();
         let mut stmt = conn.prepare(
             "SELECT id, title, memory_type, importance FROM memories
-             WHERE project = ?1 AND deleted_at IS NULL AND deprecated_at IS NULL"
+             WHERE project = ?1 AND deleted_at IS NULL AND deprecated_at IS NULL",
         )?;
         let rows = stmt.query_map(params![project], |row| {
             Ok(GraphNode {
@@ -1881,7 +1959,7 @@ impl MemoryStore {
              JOIN memories m1 ON r.source_id = m1.id
              JOIN memories m2 ON r.target_id = m2.id
              WHERE m1.project = ?1 AND m1.deleted_at IS NULL
-             AND m2.project = ?1 AND m2.deleted_at IS NULL"
+             AND m2.project = ?1 AND m2.deleted_at IS NULL",
         )?;
         let rows = stmt.query_map(params![project], |row| {
             Ok(GraphEdge {
@@ -1899,7 +1977,11 @@ impl MemoryStore {
     }
 
     /// Genera un resumen ejecutivo de un proyecto o sesión.
-    pub fn summarize(&self, project: &str, session_id: Option<Uuid>) -> crate::error::Result<SummaryResult> {
+    pub fn summarize(
+        &self,
+        project: &str,
+        session_id: Option<Uuid>,
+    ) -> crate::error::Result<SummaryResult> {
         let memories = if let Some(sid) = session_id {
             let conn = self
                 .conn
@@ -1910,8 +1992,9 @@ impl MemoryStore {
                 params![sid.to_string(), project],
                 |row| row.get(0),
             )?;
-            let ids: Vec<Uuid> = serde_json::from_str(&memory_ids_json)
-                .map_err(|e| crate::error::MnemeError::Config(format!("invalid session memory_ids: {}", e)))?;
+            let ids: Vec<Uuid> = serde_json::from_str(&memory_ids_json).map_err(|e| {
+                crate::error::MnemeError::Config(format!("invalid session memory_ids: {}", e))
+            })?;
             let mut result = Vec::new();
             for id in ids {
                 if let Some(mem) = self.get(id)? {
@@ -1968,7 +2051,10 @@ impl MemoryStore {
         file: Option<&str>,
         limit: u32,
     ) -> crate::error::Result<String> {
-        let mut lines = vec![format!("## Contexto del proyecto: {}", project), String::new()];
+        let mut lines = vec![
+            format!("## Contexto del proyecto: {}", project),
+            String::new(),
+        ];
 
         // Critical/high importance memories
         let critical = self.list(project, None, Some(&Importance::Critical), None, limit, 0)?;
@@ -1980,7 +2066,12 @@ impl MemoryStore {
         if !important.is_empty() {
             lines.push("### Decisiones arquitectónicas críticas".to_string());
             for mem in &important {
-                lines.push(format!("- {} ({}): {}", mem.title, mem.memory_type, &mem.content[..mem.content.len().min(120)]));
+                lines.push(format!(
+                    "- {} ({}): {}",
+                    mem.title,
+                    mem.memory_type,
+                    &mem.content[..mem.content.len().min(120)]
+                ));
             }
             lines.push(String::new());
         }
@@ -1988,22 +2079,41 @@ impl MemoryStore {
         // Recent memories related to file
         if let Some(file_path) = file {
             let related = self.list(project, None, None, None, limit, 0)?;
-            let file_related: Vec<_> = related.into_iter()
-                .filter(|m| m.context.as_ref().map(|c| c.contains(file_path)).unwrap_or(false))
+            let file_related: Vec<_> = related
+                .into_iter()
+                .filter(|m| {
+                    m.context
+                        .as_ref()
+                        .map(|c| c.contains(file_path))
+                        .unwrap_or(false)
+                })
                 .take(limit as usize)
                 .collect();
             if !file_related.is_empty() {
                 lines.push("### Memorias recientes relevantes".to_string());
                 for mem in &file_related {
-                    lines.push(format!("- {} ({}): {}", mem.title, mem.importance, &mem.content[..mem.content.len().min(120)]));
+                    lines.push(format!(
+                        "- {} ({}): {}",
+                        mem.title,
+                        mem.importance,
+                        &mem.content[..mem.content.len().min(120)]
+                    ));
                 }
                 lines.push(String::new());
             }
         }
 
         // Architecture decisions and conventions
-        let arch = self.list(project, Some(&MemoryType::Architecture), None, None, limit, 0)?;
-        let conventions = self.list(project, Some(&MemoryType::Convention), None, None, limit, 0)?;
+        let arch = self.list(
+            project,
+            Some(&MemoryType::Architecture),
+            None,
+            None,
+            limit,
+            0,
+        )?;
+        let conventions =
+            self.list(project, Some(&MemoryType::Convention), None, None, limit, 0)?;
         let mut patterns = arch;
         patterns.extend(conventions);
         patterns.truncate(limit as usize);
@@ -2011,7 +2121,11 @@ impl MemoryStore {
         if !patterns.is_empty() {
             lines.push("### Convenciones y patrones".to_string());
             for mem in &patterns {
-                lines.push(format!("- {}: {}", mem.title, &mem.content[..mem.content.len().min(120)]));
+                lines.push(format!(
+                    "- {}: {}",
+                    mem.title,
+                    &mem.content[..mem.content.len().min(120)]
+                ));
             }
             lines.push(String::new());
         }
@@ -2022,7 +2136,11 @@ impl MemoryStore {
                 .conn
                 .lock()
                 .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
-            let ids: Vec<String> = important.iter().chain(patterns.iter()).map(|m| m.id.to_string()).collect();
+            let ids: Vec<String> = important
+                .iter()
+                .chain(patterns.iter())
+                .map(|m| m.id.to_string())
+                .collect();
             for id in &ids {
                 let _ = conn.execute(
                     "UPDATE memories SET context_inject_count = context_inject_count + 1 WHERE id = ?1",
@@ -2040,9 +2158,7 @@ impl MemoryStore {
             .conn
             .lock()
             .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
-        let mut stmt = conn.prepare(
-            "SELECT rowid FROM memories WHERE project = ?1"
-        )?;
+        let mut stmt = conn.prepare("SELECT rowid FROM memories WHERE project = ?1")?;
         let rows = stmt.query_map(params![project], |row| row.get::<_, i64>(0))?;
         let mut rowids = Vec::new();
         for row in rows {
@@ -2051,10 +2167,7 @@ impl MemoryStore {
         for rowid in rowids {
             conn.execute("DELETE FROM memories_fts WHERE rowid = ?1", params![rowid])?;
         }
-        let affected = conn.execute(
-            "DELETE FROM memories WHERE project = ?1",
-            params![project],
-        )?;
+        let affected = conn.execute("DELETE FROM memories WHERE project = ?1", params![project])?;
         tracing::info!(project = project, deleted = affected, "forgot project");
         Ok(affected as u32)
     }
@@ -2092,20 +2205,24 @@ impl MemoryStore {
         ).unwrap_or(0);
 
         // Unindexed embeddings
-        let unindexed_embeddings: u32 = conn.query_row(
-            "SELECT COUNT(*) FROM memories m
+        let unindexed_embeddings: u32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM memories m
              LEFT JOIN memory_embeddings e ON m.id = e.memory_id
              WHERE m.deleted_at IS NULL AND e.memory_id IS NULL",
-            [],
-            |row| row.get(0),
-        ).unwrap_or(0);
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
 
         // Try to get embedding model
-        let embedding_model: String = conn.query_row(
-            "SELECT model_name FROM memory_embeddings ORDER BY created_at DESC LIMIT 1",
-            [],
-            |row| row.get(0),
-        ).unwrap_or_else(|_| "unknown".to_string());
+        let embedding_model: String = conn
+            .query_row(
+                "SELECT model_name FROM memory_embeddings ORDER BY created_at DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|_| "unknown".to_string());
 
         Ok(HealthReport {
             db_size_mb,
@@ -2119,7 +2236,11 @@ impl MemoryStore {
     }
 
     /// Retorna memorias críticas/high como recordatorios.
-    pub fn remind(&self, project: &str, importance: &Importance) -> crate::error::Result<Vec<Memory>> {
+    pub fn remind(
+        &self,
+        project: &str,
+        importance: &Importance,
+    ) -> crate::error::Result<Vec<Memory>> {
         let conn = self
             .conn
             .lock()
@@ -2147,11 +2268,12 @@ impl MemoryStore {
             }
         }
 
-        sql.push_str(" ORDER BY CASE importance WHEN 'critical' THEN 1 WHEN 'high' THEN 2 ELSE 3 END,
-                      last_accessed_at IS NULL, last_accessed_at ASC LIMIT 50");
+        sql.push_str(
+            " ORDER BY CASE importance WHEN 'critical' THEN 1 WHEN 'high' THEN 2 ELSE 3 END,
+                      last_accessed_at IS NULL, last_accessed_at ASC LIMIT 50",
+        );
 
-        let param_refs: Vec<&dyn rusqlite::ToSql> =
-            params_vec.iter().map(|p| p.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
 
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(param_refs.as_slice(), Self::row_to_memory)?;
@@ -2164,19 +2286,24 @@ impl MemoryStore {
     }
 
     /// Sugiere tags basados en tags existentes y contenido.
-    pub fn suggest_tags(&self, project: &str, title: &str, content: Option<&str>) -> crate::error::Result<Vec<String>> {
+    pub fn suggest_tags(
+        &self,
+        project: &str,
+        title: &str,
+        content: Option<&str>,
+    ) -> crate::error::Result<Vec<String>> {
         let conn = self
             .conn
             .lock()
             .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
 
         // Get all tags from project
-        let mut stmt = conn.prepare(
-            "SELECT tags FROM memories WHERE project = ?1 AND deleted_at IS NULL"
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT tags FROM memories WHERE project = ?1 AND deleted_at IS NULL")?;
         let rows = stmt.query_map(params![project], |row| row.get::<_, String>(0))?;
 
-        let mut tag_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        let mut tag_counts: std::collections::HashMap<String, u32> =
+            std::collections::HashMap::new();
         for row in rows {
             let tags_json = row?;
             let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
@@ -2193,10 +2320,13 @@ impl MemoryStore {
         // Extract keywords from title + content
         let text = format!("{} {}", title, content.unwrap_or("")).to_lowercase();
         let stopwords: std::collections::HashSet<&str> = [
-            "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-            "have", "has", "had", "do", "does", "did", "will", "would", "could", "should",
-            "of", "in", "for", "on", "with", "at", "by", "from", "as", "to", "and", "or", "but",
-        ].iter().copied().collect();
+            "a", "an", "the", "is", "are", "was", "were", "be", "been", "being", "have", "has",
+            "had", "do", "does", "did", "will", "would", "could", "should", "of", "in", "for",
+            "on", "with", "at", "by", "from", "as", "to", "and", "or", "but",
+        ]
+        .iter()
+        .copied()
+        .collect();
 
         let words: Vec<String> = text
             .split(|c: char| !c.is_alphanumeric())
@@ -2268,7 +2398,10 @@ impl MemoryStore {
             ("config", 0.05),
             ("discovery", 0.05),
             ("learning", 0.10),
-        ].iter().copied().collect();
+        ]
+        .iter()
+        .copied()
+        .collect();
 
         let mut gaps = Vec::new();
         let mut covered = 0.0;
@@ -2300,62 +2433,94 @@ impl MemoryStore {
             gaps.push(KnowledgeGap {
                 area: "topic_key".to_string(),
                 count: without_topic_key,
-                suggestion: "Muchas memorias carecen de topic_key; esto dificulta la evolución organizada".to_string(),
+                suggestion:
+                    "Muchas memorias carecen de topic_key; esto dificulta la evolución organizada"
+                        .to_string(),
             });
         }
 
         let coverage_score = (covered / ideals.values().sum::<f64>()).clamp(0.0, 1.0);
 
-        Ok(KnowledgeGapsReport { gaps, coverage_score })
+        Ok(KnowledgeGapsReport {
+            gaps,
+            coverage_score,
+        })
     }
 
     /// Encripta una memoria existente in-place.
-    pub fn encrypt_existing(
-        &self,
-        memory_id: Uuid,
-    ) -> crate::error::Result<Memory> {
-        let memory = self.get(memory_id)?.ok_or(crate::error::MnemeError::NotFound(memory_id))?;
+    pub fn encrypt_existing(&self, memory_id: Uuid) -> crate::error::Result<Memory> {
+        let memory = self
+            .get(memory_id)?
+            .ok_or(crate::error::MnemeError::NotFound(memory_id))?;
         if memory.is_encrypted {
             return Err(crate::error::MnemeError::AlreadyEncrypted(memory_id));
         }
-        let crypto_arc = self.crypto.as_ref().ok_or(crate::error::MnemeError::NoRecipientsConfigured)?;
-        let crypto = crypto_arc.lock().map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+        let crypto_arc = self
+            .crypto
+            .as_ref()
+            .ok_or(crate::error::MnemeError::NoRecipientsConfigured)?;
+        let crypto = crypto_arc
+            .lock()
+            .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
         if !crypto.has_recipients() {
             return Err(crate::error::MnemeError::NoRecipientsConfigured);
         }
         let enc_content = crypto.encrypt_str(&memory.content)?;
-        let enc_what = memory.what.as_deref().map(|s| crypto.encrypt_str(s)).transpose()?;
-        let enc_why = memory.why.as_deref().map(|s| crypto.encrypt_str(s)).transpose()?;
-        let enc_ctx = memory.context.as_deref().map(|s| crypto.encrypt_str(s)).transpose()?;
-        let enc_learned = memory.learned.as_deref().map(|s| crypto.encrypt_str(s)).transpose()?;
+        let enc_what = memory
+            .what
+            .as_deref()
+            .map(|s| crypto.encrypt_str(s))
+            .transpose()?;
+        let enc_why = memory
+            .why
+            .as_deref()
+            .map(|s| crypto.encrypt_str(s))
+            .transpose()?;
+        let enc_ctx = memory
+            .context
+            .as_deref()
+            .map(|s| crypto.encrypt_str(s))
+            .transpose()?;
+        let enc_learned = memory
+            .learned
+            .as_deref()
+            .map(|s| crypto.encrypt_str(s))
+            .transpose()?;
         let label = crypto.encrypted_for_label();
         drop(crypto);
 
-        let conn = self.conn.lock().map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
         conn.execute(
             "UPDATE memories SET content=?1, what=?2, why=?3, context=?4, learned=?5, is_encrypted=1, encrypted_for=?6, updated_at=?7 WHERE id=?8",
             params![enc_content, enc_what, enc_why, enc_ctx, enc_learned, label, Utc::now().to_rfc3339(), memory_id.to_string()],
         )?;
         drop(conn);
-        self.get(memory_id)?.ok_or(crate::error::MnemeError::NotFound(memory_id))
+        self.get(memory_id)?
+            .ok_or(crate::error::MnemeError::NotFound(memory_id))
     }
 
     /// Desencripta una memoria encriptada (permanentemente).
-    pub fn decrypt_existing(
-        &self,
-        memory_id: Uuid,
-    ) -> crate::error::Result<Memory> {
-        let memory = self.get(memory_id)?.ok_or(crate::error::MnemeError::NotFound(memory_id))?;
+    pub fn decrypt_existing(&self, memory_id: Uuid) -> crate::error::Result<Memory> {
+        let memory = self
+            .get(memory_id)?
+            .ok_or(crate::error::MnemeError::NotFound(memory_id))?;
         if !memory.is_encrypted {
             return Err(crate::error::MnemeError::NotEncrypted(memory_id));
         }
-        let conn = self.conn.lock().map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
         conn.execute(
             "UPDATE memories SET content=?1, what=?2, why=?3, context=?4, learned=?5, is_encrypted=0, encrypted_for=NULL, updated_at=?6 WHERE id=?7",
             params![memory.content, memory.what, memory.why, memory.context, memory.learned, Utc::now().to_rfc3339(), memory_id.to_string()],
         )?;
         drop(conn);
-        self.get(memory_id)?.ok_or(crate::error::MnemeError::NotFound(memory_id))
+        self.get(memory_id)?
+            .ok_or(crate::error::MnemeError::NotFound(memory_id))
     }
 }
 

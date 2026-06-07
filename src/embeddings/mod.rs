@@ -1,9 +1,9 @@
 #[cfg(feature = "embeddings")]
 pub mod engine;
 #[cfg(feature = "embeddings")]
-pub mod store;
-#[cfg(feature = "embeddings")]
 pub mod similarity;
+#[cfg(feature = "embeddings")]
+pub mod store;
 
 // Stubs para compilar sin el feature embeddings
 #[cfg(not(feature = "embeddings"))]
@@ -34,10 +34,7 @@ pub mod engine {
         }
 
         /// Genera embeddings para un batch de textos (stub — retorna error).
-        pub async fn embed_batch(
-            &self,
-            _texts: &[String],
-        ) -> crate::error::Result<Vec<Vec<f32>>> {
+        pub async fn embed_batch(&self, _texts: &[String]) -> crate::error::Result<Vec<Vec<f32>>> {
             Err(crate::error::MnemeError::EmbeddingsDisabled)
         }
 
@@ -70,8 +67,8 @@ pub mod engine {
 
 #[cfg(not(feature = "embeddings"))]
 pub mod store {
-    use std::sync::{Arc, Mutex};
     use rusqlite::Connection;
+    use std::sync::{Arc, Mutex};
     use uuid::Uuid;
 
     /// Stub de EmbeddingStore para compilacion sin feature embeddings.

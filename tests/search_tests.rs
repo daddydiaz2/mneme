@@ -3,9 +3,7 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 use mneme::store::db::Database;
-use mneme::store::memory::{
-    CreateMemoryInput, Importance, MemoryType, Scope, SearchQuery,
-};
+use mneme::store::memory::{CreateMemoryInput, Importance, MemoryType, Scope, SearchQuery};
 use mneme::store::search::SearchWeights;
 
 fn setup_db() -> Database {
@@ -36,8 +34,16 @@ fn make_input(project: &str, title: &str, content: &str) -> CreateMemoryInput {
 fn test_search_finds_by_title() {
     let db = setup_db();
     let store = db.memories();
-    store.save(make_input("p", "Rust ownership", "borrow checker"), None, None).unwrap();
-    store.save(make_input("p", "Python asyncio", "event loop"), None, None).unwrap();
+    store
+        .save(
+            make_input("p", "Rust ownership", "borrow checker"),
+            None,
+            None,
+        )
+        .unwrap();
+    store
+        .save(make_input("p", "Python asyncio", "event loop"), None, None)
+        .unwrap();
 
     let q = SearchQuery {
         text: "Rust ownership".to_string(),
@@ -60,7 +66,13 @@ fn test_search_finds_by_title() {
 fn test_search_finds_by_content() {
     let db = setup_db();
     let store = db.memories();
-    store.save(make_input("p", "Auth middleware", "JWT Bearer token"), None, None).unwrap();
+    store
+        .save(
+            make_input("p", "Auth middleware", "JWT Bearer token"),
+            None,
+            None,
+        )
+        .unwrap();
 
     let q = SearchQuery {
         text: "Bearer".to_string(),
@@ -82,8 +94,14 @@ fn test_search_finds_by_content() {
 fn test_search_filters_by_type() {
     let db = setup_db();
     let store = db.memories();
-    store.save(make_input("p", "Architecture doc", "system design"), None, None).unwrap();
-    
+    store
+        .save(
+            make_input("p", "Architecture doc", "system design"),
+            None,
+            None,
+        )
+        .unwrap();
+
     let mut input = make_input("p", "Bug doc", "crash on startup");
     input.memory_type = MemoryType::Bugfix;
     store.save(input, None, None).unwrap();
@@ -102,14 +120,18 @@ fn test_search_filters_by_type() {
     let weights = SearchWeights::default();
     let results = store.search(&q, &weights, None).unwrap();
     assert!(!results.is_empty());
-    assert!(results.iter().all(|r| r.memory.memory_type == MemoryType::Bugfix));
+    assert!(results
+        .iter()
+        .all(|r| r.memory.memory_type == MemoryType::Bugfix));
 }
 
 #[test]
 fn test_search_respects_project_isolation() {
     let db = setup_db();
     let store = db.memories();
-    store.save(make_input("proj-a", "uniquetermxyz", "content"), None, None).unwrap();
+    store
+        .save(make_input("proj-a", "uniquetermxyz", "content"), None, None)
+        .unwrap();
 
     let q = SearchQuery {
         text: "uniquetermxyz".to_string(),
@@ -131,8 +153,20 @@ fn test_search_respects_project_isolation() {
 fn test_search_score_ordering() {
     let db = setup_db();
     let store = db.memories();
-    store.save(make_input("p", "JWT authentication", "JWT Bearer token auth"), None, None).unwrap();
-    store.save(make_input("p", "Unrelated topic", "something completely different"), None, None).unwrap();
+    store
+        .save(
+            make_input("p", "JWT authentication", "JWT Bearer token auth"),
+            None,
+            None,
+        )
+        .unwrap();
+    store
+        .save(
+            make_input("p", "Unrelated topic", "something completely different"),
+            None,
+            None,
+        )
+        .unwrap();
 
     let q = SearchQuery {
         text: "JWT".to_string(),

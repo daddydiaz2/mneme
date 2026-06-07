@@ -126,6 +126,10 @@ pub enum MnemeError {
     /// Clave no encontrada.
     #[error("clave no encontrada: {0}")]
     KeyNotFound(String),
+
+    /// Error de plugin WASM.
+    #[error("error de plugin: {0}")]
+    Plugin(String),
 }
 
 impl From<rusqlite_migration::Error> for MnemeError {
@@ -147,7 +151,10 @@ impl MnemeError {
     /// UUID de la memoria asociada al error, si aplica.
     pub fn memory_id(&self) -> Option<Uuid> {
         match self {
-            MnemeError::NotFound(id) | MnemeError::SelfRelation(id) | MnemeError::AlreadyEncrypted(id) | MnemeError::NotEncrypted(id) => Some(*id),
+            MnemeError::NotFound(id)
+            | MnemeError::SelfRelation(id)
+            | MnemeError::AlreadyEncrypted(id)
+            | MnemeError::NotEncrypted(id) => Some(*id),
             _ => None,
         }
     }
