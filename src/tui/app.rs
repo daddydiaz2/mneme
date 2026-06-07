@@ -1,8 +1,31 @@
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
+
 use crate::config::settings::Settings;
 use crate::store::db::Database;
+use crate::store::entities::{EntitySearchResult, EntityType};
 use crate::store::memory::{GraphData, Memory, SearchQuery};
+
+/// Datos para la vista de grafo de entidades.
+pub struct EntityGraphData {
+    /// Entidades frecuentes (top N).
+    pub frequent_entities: Vec<(String, EntityType, u32)>,
+    /// Memorias seleccionadas actualmente.
+    pub selected_memories: Vec<EntitySearchResult>,
+    /// Índice del nodo seleccionado.
+    pub selected: usize,
+}
+
+/// Datos para la vista temporal de memorias.
+pub struct TemporalData {
+    /// Memorias con sus ventanas de validez.
+    pub memories: Vec<Memory>,
+    /// Timestamp de referencia para la consulta.
+    pub reference_time: DateTime<Utc>,
+    /// Modo de visualización: 0 = "all", 1 = "valid at", 2 = "expired".
+    pub display_mode: u8,
+}
 
 /// Modos de operación de la aplicación TUI.
 pub enum AppMode {
@@ -19,6 +42,10 @@ pub enum AppMode {
     Help,
     /// Vista de grafo de relaciones.
     Graph,
+    /// Vista de grafo de entidades.
+    EntityGraph,
+    /// Vista temporal de memorias.
+    Temporal,
 }
 
 /// Estado global de la aplicación TUI.
@@ -43,6 +70,10 @@ pub struct App {
     pub graph_data: Option<GraphData>,
     /// Índice del nodo seleccionado en la vista de grafo.
     pub graph_selected: usize,
+    /// Datos de entidades para entity graph.
+    pub entity_graph_data: Option<EntityGraphData>,
+    /// Estado de la vista temporal.
+    pub temporal_data: Option<TemporalData>,
     db: Arc<Database>,
     #[allow(dead_code)]
     settings: Arc<Settings>,
@@ -63,6 +94,8 @@ impl App {
             should_quit: false,
             graph_data: None,
             graph_selected: 0,
+            entity_graph_data: None,
+            temporal_data: None,
             db,
             settings,
         })
@@ -138,6 +171,65 @@ impl App {
                     .checked_sub(1)
                     .unwrap_or(data.nodes.len() - 1);
             }
+        }
+    }
+
+    /// Carga datos de entidades frecuentes y prepara entity graph.
+    pub fn load_entity_graph(&mut self) -> crate::error::Result<()> {
+        let entity_store = self.db.entities();
+        let frequent = entity_store.frequent_entities(&self.project, 30)?;
+        self.entity_graph_data = Some(EntityGraphData {
+            frequent_entities: frequent,
+            selected_memories: Vec::new(),
+            selected: 0,
+        });
+        Ok(())
+    }
+
+    /// Activa la vista de grafo de entidades.
+    pub fn toggle_entity_graph(&mut self) -> crate::error::Result<()> {
+        match self.mode {
+            AppMode::EntityGraph => {
+                self.mode = AppMode::Normal;
+            }
+            _ => {
+                self.load_entity_graph()?;
+                self.mode = AppMode::EntityGraph;
+            }
+        }
+        Ok(())
+    }
+
+    /// Carga datos temporales (memorias + ventanas de validez).
+    pub fn load_temporal(&mut self) -> crate::error::Result<()> {
+        let store = self.db.memories();
+        let memories = store.list(&self.project, None, None, None, 500, 0)?;
+        self.temporal_data = Some(TemporalData {
+            memories,
+            reference_time: Utc::now(),
+            display_mode: 0,
+        });
+        Ok(())
+    }
+
+    /// Activa la vista temporal.
+    pub fn toggle_temporal(&mut self) -> crate::error::Result<()> {
+        match self.mode {
+            AppMode::Temporal => {
+                self.mode = AppMode::Normal;
+            }
+            _ => {
+                self.load_temporal()?;
+                self.mode = AppMode::Temporal;
+            }
+        }
+        Ok(())
+    }
+
+    /// Cicla el modo de display temporal: 0=All, 1=ValidAt, 2=Expired.
+    pub fn temporal_cycle_mode(&mut self) {
+        if let Some(ref mut data) = self.temporal_data {
+            data.display_mode = (data.display_mode + 1) % 3;
         }
     }
 

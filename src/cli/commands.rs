@@ -508,6 +508,9 @@ pub fn run_command(
                 topic_key,
                 capture_prompt: None,
                 encrypt: false,
+        valid_from: None,
+        valid_until: None,
+        provenance: None,
             };
 
             let engine = embeddings.map(std::sync::Arc::clone);
@@ -707,6 +710,9 @@ pub fn run_command(
                         topic_key: None,
                         capture_prompt: None,
                         encrypt: false,
+        valid_from: None,
+        valid_until: None,
+        provenance: None,
                     };
                     store.save(input, engine.clone(), Some(embedding_store.clone()))?;
                     count += 1;
@@ -729,6 +735,9 @@ pub fn run_command(
                         topic_key: mem.topic_key,
                         capture_prompt: None,
                         encrypt: false,
+        valid_from: None,
+        valid_until: None,
+        provenance: None,
                     };
                     store.save(input, engine.clone(), Some(embedding_store.clone()))?;
                     count += 1;
@@ -801,6 +810,9 @@ pub fn run_command(
                     topic_key: mem.topic_key,
                     capture_prompt: None,
                     encrypt: false,
+        valid_from: None,
+        valid_until: None,
+        provenance: None,
                 });
             }
             let engine = embeddings.map(std::sync::Arc::clone);
@@ -1355,6 +1367,9 @@ mod tests {
                     tags: vec![],
                     topic_key: None,
                     capture_prompt: None,
+                    valid_from: None,
+                    valid_until: None,
+                    provenance: None,
                 },
                 None,
                 None,

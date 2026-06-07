@@ -233,6 +233,9 @@ pub async fn create_memory(
         topic_key: body.topic_key,
         capture_prompt: None,
         encrypt: false,
+        valid_from: None,
+        valid_until: None,
+        provenance: None,
     };
 
     let engine = embeddings.clone();
@@ -629,6 +632,9 @@ pub async fn import_memories(
             topic_key: mem.topic_key,
             capture_prompt: None,
             encrypt: false,
+        valid_from: None,
+        valid_until: None,
+        provenance: None,
         };
         store
             .save(input, engine.clone(), Some(embedding_store.clone()))
@@ -875,6 +881,9 @@ pub async fn batch_save(
             topic_key: item.topic_key,
             capture_prompt: None,
             encrypt: false,
+        valid_from: None,
+        valid_until: None,
+        provenance: None,
         });
     }
 
@@ -1324,4 +1333,59 @@ pub async fn keys_status(State(db): State<Arc<Database>>) -> ApiResult<serde_jso
         "identity_loaded": false,
         "default_key": default_key,
     })))
+}
+
+// --- Cloud Sync Handlers ---
+
+#[derive(Debug, Deserialize)]
+pub struct CloudEnrollRequest {
+    pub server: String,
+    pub token: String,
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CloudSyncRequest {
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CloudStatusQuery {
+    pub project: Option<String>,
+}
+
+pub async fn cloud_enroll(
+    State(db): State<Arc<Database>>,
+    Extension(settings): Extension<Arc<Settings>>,
+    Json(req): Json<CloudEnrollRequest>,
+) -> ApiResult<serde_json::Value> {
+    let project = req.project.unwrap_or_else(|| settings.mcp.default_project.clone());
+    let orch = crate::cloud::CloudOrchestrator::new(db, settings.sync.clone());
+    let result = orch.enroll(&req.server, &req.token, &project).await
+        .map_err(map_err)?;
+    Ok(Json(serde_json::to_value(result).map_err(|e| map_err(crate::error::MnemeError::Serialization(e)))?))
+}
+
+pub async fn cloud_sync(
+    State(db): State<Arc<Database>>,
+    Extension(settings): Extension<Arc<Settings>>,
+    Json(req): Json<CloudSyncRequest>,
+) -> ApiResult<serde_json::Value> {
+    let project = req.project.unwrap_or_else(|| settings.mcp.default_project.clone());
+    let orch = crate::cloud::CloudOrchestrator::new(db, settings.sync.clone());
+    let result = orch.sync_cloud(&project).await
+        .map_err(map_err)?;
+    Ok(Json(serde_json::to_value(result).map_err(|e| map_err(crate::error::MnemeError::Serialization(e)))?))
+}
+
+pub async fn cloud_status(
+    State(db): State<Arc<Database>>,
+    Extension(settings): Extension<Arc<Settings>>,
+    Query(query): Query<CloudStatusQuery>,
+) -> ApiResult<serde_json::Value> {
+    let project = query.project.unwrap_or_else(|| settings.mcp.default_project.clone());
+    let orch = crate::cloud::CloudOrchestrator::new(db, settings.sync.clone());
+    let status = orch.cloud_status(&project)
+        .map_err(map_err)?;
+    Ok(Json(status))
 }

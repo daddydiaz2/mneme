@@ -25,6 +25,9 @@ fn make_memory(title: &str) -> CreateMemoryInput {
         tags: vec!["rust".to_string(), "test".to_string()],
         topic_key: None,
         capture_prompt: None,
+        valid_from: None,
+        valid_until: None,
+        provenance: None,
     }
 }
 

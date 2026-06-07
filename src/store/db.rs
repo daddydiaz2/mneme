@@ -54,6 +54,11 @@ impl Database {
         crate::embeddings::store::EmbeddingStore::new(self.conn.clone())
     }
 
+    /// Retorna un store de entidades extraídas.
+    pub fn entities(&self) -> crate::store::entities::EntityStore {
+        crate::store::entities::EntityStore::new(self.conn.clone())
+    }
+
     /// Retorna un store de peers.
     pub fn peers(&self) -> crate::sync::peer::PeerStore {
         crate::sync::peer::PeerStore::new(self.conn.clone())

@@ -93,14 +93,60 @@ impl Default for BehaviorConfig {
     }
 }
 
+/// Proveedor de embeddings.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+#[derive(Default)]
+pub enum EmbeddingProvider {
+    /// ONNX local via fastembed (default, zero config).
+    #[default]
+    Onnx,
+    /// OpenAI API (requires OPENAI_API_KEY env).
+    OpenAI,
+    /// Ollama local server (requires OLLAMA_HOST env, default http://localhost:11434).
+    Ollama,
+    /// Google Gemini API (requires GOOGLE_API_KEY env).
+    Google,
+}
+
+impl std::fmt::Display for EmbeddingProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            EmbeddingProvider::Onnx => "onnx",
+            EmbeddingProvider::OpenAI => "openai",
+            EmbeddingProvider::Ollama => "ollama",
+            EmbeddingProvider::Google => "google",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl std::str::FromStr for EmbeddingProvider {
+    type Err = crate::error::MnemeError;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "onnx" => Ok(EmbeddingProvider::Onnx),
+            "openai" => Ok(EmbeddingProvider::OpenAI),
+            "ollama" => Ok(EmbeddingProvider::Ollama),
+            "google" => Ok(EmbeddingProvider::Google),
+            other => Err(crate::error::MnemeError::Config(format!(
+                "Unknown embedding provider: {}",
+                other
+            ))),
+        }
+    }
+}
+
 /// Configuración de embeddings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingsConfig {
     /// Habilitar búsqueda semántica.
     pub enabled: bool,
+    /// Proveedor de embeddings (onnx, openai, ollama, google).
+    pub provider: EmbeddingProvider,
     /// Modelo de embeddings a utilizar.
     pub model: String,
-    /// Directorio de caché.
+    /// Directorio de caché (usado por ONNX).
     pub cache_dir: PathBuf,
     /// Indexar automáticamente nuevas memorias.
     pub auto_index: bool,
@@ -117,6 +163,7 @@ impl Default for EmbeddingsConfig {
         std::fs::create_dir_all(&cache_dir).ok();
         Self {
             enabled: true,
+            provider: EmbeddingProvider::Onnx,
             model: "BAAI/bge-small-en-v1.5".into(),
             cache_dir,
             auto_index: true,
@@ -255,6 +302,11 @@ impl Settings {
         }
         if let Ok(val) = std::env::var("MNEME_EMBEDDINGS_ENABLED") {
             self.embeddings.enabled = val.parse::<bool>().unwrap_or(self.embeddings.enabled);
+        }
+        if let Ok(val) = std::env::var("MNEME_EMBEDDING_PROVIDER") {
+            if let Ok(provider) = val.parse() {
+                self.embeddings.provider = provider;
+            }
         }
         if let Ok(val) = std::env::var("MNEME_CACHE_DIR") {
             self.embeddings.cache_dir = PathBuf::from(val);

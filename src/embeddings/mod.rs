@@ -1,6 +1,8 @@
 #[cfg(feature = "embeddings")]
 pub mod engine;
 #[cfg(feature = "embeddings")]
+pub mod rerank;
+#[cfg(feature = "embeddings")]
 pub mod similarity;
 #[cfg(feature = "embeddings")]
 pub mod store;
@@ -24,7 +26,11 @@ pub mod engine {
 
     impl EmbeddingEngine {
         /// Inicializa el motor (stub — retorna error).
-        pub async fn new(_cache_dir: &Path) -> crate::error::Result<Self> {
+        pub async fn new(
+            _cache_dir: &Path,
+            _provider: &crate::config::settings::EmbeddingProvider,
+            _model: &str,
+        ) -> crate::error::Result<Self> {
             Err(crate::error::MnemeError::EmbeddingsDisabled)
         }
 
@@ -158,5 +164,21 @@ pub mod similarity {
                 .partial_cmp(&a.combined_score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
+    }
+}
+
+#[cfg(not(feature = "embeddings"))]
+pub mod rerank {
+    use crate::store::memory::SearchResult;
+    use crate::store::search::SearchWeights;
+
+    /// Stub: no-op reranker when embeddings are disabled.
+    pub fn rerank_search_results(
+        _query: &str,
+        _results: &mut Vec<SearchResult>,
+        _engine: Option<&std::sync::Arc<crate::embeddings::engine::EmbeddingEngine>>,
+        _weights: &SearchWeights,
+    ) {
+        // No-op
     }
 }

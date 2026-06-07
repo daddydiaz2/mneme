@@ -1,0 +1,31 @@
+# Mneme Cloud Sync Infrastructure
+# Starts a cloud sync server that accepts peer connections from mneme instances.
+# The cloud server acts as a relay/bridge for cross-machine memory sync.
+#
+# Usage:
+#   docker compose -f docker-compose.cloud.yml up -d
+#   mneme cloud enroll --server http://localhost:8080 --token <token> --project <project>
+#   mneme cloud sync --project <project>
+
+version: "3.9"
+
+services:
+  cloud-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.cloud
+    ports:
+      - "8080:8080"
+    environment:
+      - MNEME_PORT=8080
+      - MNEME_HOST=0.0.0.0
+      - MNEME_DB_PATH=/data/mneme-cloud.db
+      - MNEME_SYNC_ENABLED=true
+      - MNEME_CLOUD_TOKEN=${MNEME_CLOUD_TOKEN:-change-me-please}
+      - RUST_LOG=info
+    volumes:
+      - mneme-cloud-data:/data
+    restart: unless-stopped
+
+volumes:
+  mneme-cloud-data:

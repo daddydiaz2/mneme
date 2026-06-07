@@ -28,6 +28,9 @@ fn make_input(project: &str, title: &str) -> CreateMemoryInput {
         tags: vec![],
         topic_key: None,
         capture_prompt: None,
+        valid_from: None,
+        valid_until: None,
+        provenance: None,
     }
 }
 

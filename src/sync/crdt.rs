@@ -168,6 +168,9 @@ pub fn doc_to_memory(doc_bytes: &[u8]) -> Result<Memory> {
         origin_peer: None,
         is_encrypted: get_int("is_encrypted").map(|v| v != 0).unwrap_or(false),
         encrypted_for: get_opt_str("encrypted_for")?,
+        valid_from: get_date("valid_from")?,
+        valid_until: get_date("valid_until")?,
+        provenance: get_opt_str("provenance")?,
     })
 }
 

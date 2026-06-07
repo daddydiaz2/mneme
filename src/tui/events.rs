@@ -40,6 +40,21 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> crate::error::Result<()> {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit(),
             _ => {}
         },
+        AppMode::EntityGraph => match key.code {
+            KeyCode::Tab | KeyCode::Esc => app.toggle_entity_graph()?,
+            KeyCode::Char('q') | KeyCode::Char('Q') => app.quit(),
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit(),
+            KeyCode::Char('r') => app.load_entity_graph()?,
+            _ => {}
+        },
+        AppMode::Temporal => match key.code {
+            KeyCode::Tab | KeyCode::Esc => app.toggle_temporal()?,
+            KeyCode::Char('m') | KeyCode::Char('M') => app.temporal_cycle_mode(),
+            KeyCode::Char('q') | KeyCode::Char('Q') => app.quit(),
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit(),
+            KeyCode::Char('r') => app.load_temporal()?,
+            _ => {}
+        },
         AppMode::Normal => match key.code {
             KeyCode::Char('q') | KeyCode::Char('Q') => app.quit(),
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit(),
@@ -54,6 +69,8 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> crate::error::Result<()> {
             KeyCode::Char('d') => app.delete_selected()?,
             KeyCode::Char('?') => app.toggle_help(),
             KeyCode::Tab => app.toggle_graph()?,
+            KeyCode::Char('e') => app.toggle_entity_graph()?,
+            KeyCode::Char('t') => app.toggle_temporal()?,
             _ => {}
         },
     }
@@ -215,6 +232,9 @@ mod tests {
                     tags: vec![],
                     topic_key: None,
                     capture_prompt: None,
+                    valid_from: None,
+                    valid_until: None,
+                    provenance: None,
                 },
                 None,
                 None,
@@ -325,6 +345,9 @@ mod tests {
                     tags: vec![],
                     topic_key: None,
                     capture_prompt: None,
+                    valid_from: None,
+                    valid_until: None,
+                    provenance: None,
                 },
                 None,
                 None,

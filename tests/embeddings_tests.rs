@@ -57,6 +57,9 @@ fn test_embedding_store_save_and_load() {
         tags: vec![],
         topic_key: None,
         capture_prompt: None,
+        valid_from: None,
+        valid_until: None,
+        provenance: None,
     };
     let mem = mem_store.save(input, None, None).unwrap();
 
@@ -91,6 +94,9 @@ fn test_find_unindexed_returns_correct_ids() {
         tags: vec![],
         topic_key: None,
         capture_prompt: None,
+        valid_from: None,
+        valid_until: None,
+        provenance: None,
     };
     let mem = mem_store.save(input, None, None).unwrap();
 

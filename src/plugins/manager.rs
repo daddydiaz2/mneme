@@ -240,3 +240,59 @@ impl PluginManager {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_empty_manager_has_no_plugins() {
+        let mgr = PluginManager::empty();
+        assert!(mgr.plugins.is_empty());
+    }
+
+    #[test]
+    fn test_load_from_nonexistent_dir_returns_empty() {
+        let dir = PathBuf::from("/tmp/mneme_plugins_nonexistent_12345");
+        let mgr = PluginManager::load_from_dir(&dir).unwrap();
+        assert!(mgr.plugins.is_empty());
+    }
+
+    #[test]
+    fn test_load_from_empty_dir_returns_empty() {
+        let dir = std::env::temp_dir().join(format!(
+            "mneme_plugins_empty_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mgr = PluginManager::load_from_dir(&dir).unwrap();
+        assert!(mgr.plugins.is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_call_tool_on_empty_returns_error() {
+        let mgr = PluginManager::empty();
+        let result = mgr.call_tool("foo", serde_json::json!({}), "test");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_pre_save_on_empty_returns_input() {
+        let mgr = PluginManager::empty();
+        let input = serde_json::json!({"title": "test"});
+        let result = mgr.run_pre_save(input.clone()).unwrap();
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn test_post_get_on_empty_returns_input() {
+        let mgr = PluginManager::empty();
+        let input = serde_json::json!({"id": "123"});
+        let result = mgr.run_post_get(input.clone()).unwrap();
+        assert_eq!(result, input);
+    }
+}

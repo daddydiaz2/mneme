@@ -5,6 +5,7 @@ use axum::{Extension, Router};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
+use crate::config::settings::Settings;
 use crate::http::handlers;
 use crate::store::db::Database;
 
@@ -75,7 +76,11 @@ pub fn create_router(
         .route("/api/v1/sync/hello", post(handlers::sync_hello))
         .route("/api/v1/sync/pull", post(handlers::sync_pull))
         .route("/api/v1/sync/push", post(handlers::sync_push))
+        .route("/api/v1/cloud/enroll", post(handlers::cloud_enroll))
+        .route("/api/v1/cloud/sync", post(handlers::cloud_sync))
+        .route("/api/v1/cloud/status", get(handlers::cloud_status))
         .layer(Extension(embeddings))
+        .layer(Extension(Arc::new(Settings::load().unwrap_or_default())))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(db)
