@@ -13,6 +13,7 @@ use super::manifest::{PluginManifest, PluginTool};
 struct LoadedPlugin {
     manifest: PluginManifest,
     /// Raw WASM bytes, kept for re-instantiation per call.
+    #[allow(dead_code)]
     wasm_bytes: Vec<u8>,
 }
 

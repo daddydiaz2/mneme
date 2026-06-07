@@ -2,12 +2,16 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
+    widgets::{
+        canvas::{Canvas, Line as CLine},
+        Block, Borders, Clear, List, ListItem, Paragraph, Wrap,
+    },
     Frame,
 };
 
 use crate::store::memory::{Importance, MemoryType};
 use crate::tui::app::{App, AppMode};
+use crate::tui::graph::{layout_nodes, truncate_title};
 
 /// Renderiza la interfaz completa en el frame.
 pub fn render(frame: &mut Frame, app: &App) {
@@ -22,32 +26,41 @@ pub fn render(frame: &mut Frame, app: &App) {
 
     render_header(frame, app, main_layout[0]);
 
-    let body_layout = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
-        .split(main_layout[1]);
-
-    render_memory_list(frame, app, body_layout[0]);
-    render_detail(frame, app, body_layout[1]);
-
     match app.mode {
-        AppMode::Searching => {
-            let area = centered_rect(60, 3, frame.size());
-            frame.render_widget(Clear, area);
-            render_search_bar(frame, app, area);
-        }
-        AppMode::Confirming { ref action, .. } => {
-            let area = centered_rect(50, 5, frame.size());
-            frame.render_widget(Clear, area);
-            render_confirm_overlay(frame, action, area);
-        }
-        AppMode::Help => {
-            let area = centered_rect(70, 20, frame.size());
-            frame.render_widget(Clear, area);
-            render_help_overlay(frame, area);
-        }
-        AppMode::Normal => {
+        AppMode::Graph => {
+            render_graph(frame, app, main_layout[1]);
             render_statusbar(frame, app, main_layout[2]);
+        }
+        _ => {
+            let body_layout = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
+                .split(main_layout[1]);
+
+            render_memory_list(frame, app, body_layout[0]);
+            render_detail(frame, app, body_layout[1]);
+
+            match app.mode {
+                AppMode::Searching => {
+                    let area = centered_rect(60, 3, frame.size());
+                    frame.render_widget(Clear, area);
+                    render_search_bar(frame, app, area);
+                }
+                AppMode::Confirming { ref action, .. } => {
+                    let area = centered_rect(50, 5, frame.size());
+                    frame.render_widget(Clear, area);
+                    render_confirm_overlay(frame, action, area);
+                }
+                AppMode::Help => {
+                    let area = centered_rect(70, 22, frame.size());
+                    frame.render_widget(Clear, area);
+                    render_help_overlay(frame, area);
+                }
+                AppMode::Normal => {
+                    render_statusbar(frame, app, main_layout[2]);
+                }
+                AppMode::Graph => {} // handled above
+            }
         }
     }
 }
@@ -55,7 +68,7 @@ pub fn render(frame: &mut Frame, app: &App) {
 fn render_header(frame: &mut Frame, app: &App, area: Rect) {
     let version = env!("CARGO_PKG_VERSION");
     let header_text = format!(
-        "mneme v{} │ Proyecto: {} │ [Q]uit [/]Search [?]Help",
+        "mneme v{} │ Proyecto: {} │ [Q]uit [/]Search [Tab]Grafo [?]Help",
         version, app.project
     );
     let header = Paragraph::new(header_text.as_str()).style(
@@ -208,11 +221,117 @@ fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-fn render_statusbar(frame: &mut Frame, app: &App, area: Rect) {
-    let mut text = String::from("[↑↓] Navegar  [Enter] Ver  [/] Buscar  [d] Eliminar  [Q] Salir");
-    if let Some(msg) = &app.status_message {
-        text = format!("{} │ {}", msg, text);
+/// Renderiza la vista de grafo interactivo usando Canvas.
+fn render_graph(frame: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default().borders(Borders::ALL).title(" GRAFO ");
+
+    let Some(ref data) = app.graph_data else {
+        let para = Paragraph::new("No hay relaciones entre memorias")
+            .block(block)
+            .alignment(Alignment::Center);
+        frame.render_widget(para, area);
+        return;
+    };
+
+    if data.nodes.is_empty() {
+        let para = Paragraph::new("No hay relaciones entre memorias")
+            .block(block)
+            .alignment(Alignment::Center);
+        frame.render_widget(para, area);
+        return;
     }
+
+    let positions = layout_nodes(data.nodes.len());
+    let selected_idx = app.graph_selected;
+
+    // Construir índice id→position para edges
+    let id_to_pos: std::collections::HashMap<&str, (f64, f64)> = data
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.id.as_str(), positions[i]))
+        .collect();
+
+    let canvas = Canvas::default()
+        .block(block)
+        .x_bounds([0.0, 100.0])
+        .y_bounds([0.0, 100.0])
+        .paint(|ctx| {
+            // Dibujar aristas
+            for edge in &data.edges {
+                let Some(&(x1, y1)) = id_to_pos.get(edge.source.as_str()) else {
+                    continue;
+                };
+                let Some(&(x2, y2)) = id_to_pos.get(edge.target.as_str()) else {
+                    continue;
+                };
+                let color = edge_color(edge.confidence);
+                ctx.draw(&CLine {
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    color,
+                });
+
+                // Label de relación en el punto medio
+                let mx = (x1 + x2) / 2.0;
+                let my = (y1 + y2) / 2.0;
+                ctx.print(
+                    mx,
+                    my,
+                    Line::styled(
+                        truncate_title(&edge.relation_type, 8),
+                        Style::default().fg(color).add_modifier(Modifier::DIM),
+                    ),
+                );
+            }
+
+            // Dibujar nodos
+            for (i, node) in data.nodes.iter().enumerate() {
+                let (x, y) = positions[i];
+                let is_selected = i == selected_idx;
+                let color = node_color(&node.importance);
+                let label = truncate_title(&node.title, 12);
+
+                if is_selected {
+                    ctx.print(
+                        x - 7.0,
+                        y,
+                        Line::styled(
+                            format!("[{}]", label),
+                            Style::default()
+                                .fg(Color::Cyan)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    );
+                } else {
+                    ctx.print(
+                        x - 6.0,
+                        y,
+                        Line::styled(format!(" {} ", label), Style::default().fg(color)),
+                    );
+                }
+            }
+        });
+
+    frame.render_widget(canvas, area);
+}
+
+fn render_statusbar(frame: &mut Frame, app: &App, area: Rect) {
+    let text = match app.mode {
+        AppMode::Graph => {
+            "[Tab/Esc] Volver  [j/k] Seleccionar nodo  [r] Recargar  [Q] Salir".to_string()
+        }
+        _ => {
+            let base = "[↑↓] Navegar  [Tab] Grafo  [/] Buscar  [d] Eliminar  [Q] Salir";
+            if let Some(msg) = &app.status_message {
+                format!("{} │ {}", msg, base)
+            } else {
+                base.to_string()
+            }
+        }
+    };
     let para =
         Paragraph::new(text.as_str()).style(Style::default().fg(Color::White).bg(Color::DarkGray));
     frame.render_widget(para, area);
@@ -244,8 +363,14 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
         Line::from("Esc        Cancelar búsqueda / cerrar ayuda"),
         Line::from("r          Refrescar memorias"),
         Line::from("d          Eliminar memoria seleccionada"),
+        Line::from("Tab        Abrir/cerrar grafo de relaciones"),
         Line::from("?          Mostrar/ocultar ayuda"),
         Line::from("q / Q      Salir"),
+        Line::from(""),
+        Line::from("En vista de grafo:"),
+        Line::from("j/k        Seleccionar nodo"),
+        Line::from("r          Recargar grafo"),
+        Line::from("Tab/Esc    Volver a lista"),
     ];
     let block = Block::default().borders(Borders::ALL).title(" Ayuda ");
     let para = Paragraph::new(help_text)
@@ -285,6 +410,27 @@ fn importance_color(imp: &Importance) -> Color {
         Importance::High => Color::Yellow,
         Importance::Medium => Color::Green,
         Importance::Low => Color::DarkGray,
+    }
+}
+
+/// Devuelve el color del nodo según el string de importancia del grafo.
+fn node_color(importance: &str) -> Color {
+    match importance {
+        "critical" => Color::Red,
+        "high" => Color::Yellow,
+        "medium" => Color::Green,
+        _ => Color::DarkGray,
+    }
+}
+
+/// Devuelve el color de la arista según la confianza.
+fn edge_color(confidence: f32) -> Color {
+    if confidence >= 0.8 {
+        Color::Green
+    } else if confidence >= 0.5 {
+        Color::Yellow
+    } else {
+        Color::DarkGray
     }
 }
 

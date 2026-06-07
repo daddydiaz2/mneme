@@ -1,5 +1,6 @@
 pub mod app;
 pub mod events;
+pub mod graph;
 pub mod ui;
 
 use crossterm::{

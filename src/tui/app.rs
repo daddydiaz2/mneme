@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::config::settings::Settings;
 use crate::store::db::Database;
-use crate::store::memory::{Memory, SearchQuery};
+use crate::store::memory::{GraphData, Memory, SearchQuery};
 
 /// Modos de operación de la aplicación TUI.
 pub enum AppMode {
@@ -17,6 +17,8 @@ pub enum AppMode {
     },
     /// Overlay de ayuda visible.
     Help,
+    /// Vista de grafo de relaciones.
+    Graph,
 }
 
 /// Estado global de la aplicación TUI.
@@ -37,6 +39,10 @@ pub struct App {
     pub status_message: Option<String>,
     /// Flag para salir del loop.
     pub should_quit: bool,
+    /// Datos del grafo de relaciones (cargados bajo demanda).
+    pub graph_data: Option<GraphData>,
+    /// Índice del nodo seleccionado en la vista de grafo.
+    pub graph_selected: usize,
     db: Arc<Database>,
     #[allow(dead_code)]
     settings: Arc<Settings>,
@@ -55,6 +61,8 @@ impl App {
             search_query: String::new(),
             status_message: None,
             should_quit: false,
+            graph_data: None,
+            graph_selected: 0,
             db,
             settings,
         })
@@ -87,6 +95,50 @@ impl App {
         self.memories = memories;
         self.selected = self.selected.min(self.memories.len().saturating_sub(1));
         Ok(())
+    }
+
+    /// Carga el grafo de relaciones para el proyecto actual.
+    pub fn load_graph(&mut self) -> crate::error::Result<()> {
+        let store = self.db.memories();
+        let data = store.get_graph(&self.project)?;
+        self.graph_selected = 0;
+        self.graph_data = Some(data);
+        Ok(())
+    }
+
+    /// Alterna la vista de grafo. Si se activa, carga los datos primero.
+    pub fn toggle_graph(&mut self) -> crate::error::Result<()> {
+        match self.mode {
+            AppMode::Graph => {
+                self.mode = AppMode::Normal;
+            }
+            _ => {
+                self.load_graph()?;
+                self.mode = AppMode::Graph;
+            }
+        }
+        Ok(())
+    }
+
+    /// Avanza la selección al siguiente nodo del grafo.
+    pub fn graph_next(&mut self) {
+        if let Some(ref data) = self.graph_data {
+            if !data.nodes.is_empty() {
+                self.graph_selected = (self.graph_selected + 1) % data.nodes.len();
+            }
+        }
+    }
+
+    /// Retrocede la selección al nodo anterior del grafo.
+    pub fn graph_prev(&mut self) {
+        if let Some(ref data) = self.graph_data {
+            if !data.nodes.is_empty() {
+                self.graph_selected = self
+                    .graph_selected
+                    .checked_sub(1)
+                    .unwrap_or(data.nodes.len() - 1);
+            }
+        }
     }
 
     /// Mueve la selección hacia abajo.

@@ -31,6 +31,15 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> crate::error::Result<()> {
         AppMode::Help => {
             app.toggle_help();
         }
+        AppMode::Graph => match key.code {
+            KeyCode::Tab | KeyCode::Esc => app.toggle_graph()?,
+            KeyCode::Char('j') | KeyCode::Down => app.graph_next(),
+            KeyCode::Char('k') | KeyCode::Up => app.graph_prev(),
+            KeyCode::Char('r') => app.load_graph()?,
+            KeyCode::Char('q') | KeyCode::Char('Q') => app.quit(),
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit(),
+            _ => {}
+        },
         AppMode::Normal => match key.code {
             KeyCode::Char('q') | KeyCode::Char('Q') => app.quit(),
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit(),
@@ -44,6 +53,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> crate::error::Result<()> {
             KeyCode::Char('r') => app.load_memories()?,
             KeyCode::Char('d') => app.delete_selected()?,
             KeyCode::Char('?') => app.toggle_help(),
+            KeyCode::Tab => app.toggle_graph()?,
             _ => {}
         },
     }
