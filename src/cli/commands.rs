@@ -167,7 +167,7 @@ pub enum Commands {
         #[command(subcommand)]
         agent: AgentSetup,
     },
-    /// Exporta memorias a JSON.
+    /// Exporta memorias a JSON o Markdown.
     Export {
         /// Proyecto.
         #[arg(long, short = 'p', env = "MNEME_PROJECT")]
@@ -175,6 +175,9 @@ pub enum Commands {
         /// Archivo de salida.
         #[arg(long, short = 'o')]
         output: Option<PathBuf>,
+        /// Formato: json (default) o md.
+        #[arg(long, short = 'f', default_value = "json")]
+        format: String,
     },
     /// Importa memorias desde JSON.
     Import {
@@ -654,16 +657,27 @@ pub fn run_command(
             AgentSetup::ClaudeCode => setup_claude_code()?,
             AgentSetup::Continue => setup_continue()?,
         },
-        Commands::Export { project, output } => {
+        Commands::Export { project, output, format } => {
             let project = project.unwrap_or_else(Settings::infer_project);
             let memories = db.memories().list(&project, None, None, None, 10000, 0)?;
+
+            let (content, default_ext) = match format.as_str() {
+                "md" | "markdown" => {
+                    (crate::export::export_to_markdown(&memories, &project), "md")
+                }
+                _ => {
+                    (serde_json::to_string_pretty(&memories)?, "json")
+                }
+            };
+
             let output_path = output.unwrap_or_else(|| {
                 let mut path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-                path.push(format!("{}_export.json", project));
+                let timestamp = chrono::Utc::now().format("%Y%m%d");
+                path.push(format!("{}_{}_export.{}", project, timestamp, default_ext));
                 path
             });
-            let json = serde_json::to_string_pretty(&memories)?;
-            std::fs::write(&output_path, json)?;
+
+            std::fs::write(&output_path, &content)?;
             output::print_success(&format!(
                 "Exported {} memories to {}",
                 memories.len(),
@@ -673,30 +687,56 @@ pub fn run_command(
         Commands::Import { file, project } => {
             let project = project.unwrap_or_else(Settings::infer_project);
             let content = std::fs::read_to_string(&file)?;
-            let memories: Vec<crate::store::memory::Memory> = serde_json::from_str(&content)?;
             let store = db.memories();
-            let mut count = 0;
+            let mut count = 0u32;
             let engine = embeddings.map(std::sync::Arc::clone);
             let embedding_store = db.embeddings();
-            for mem in memories {
-                let input = CreateMemoryInput {
-                    project: project.clone(),
-                    scope: Some(mem.scope),
-                    title: mem.title,
-                    content: mem.content,
-                    what: mem.what,
-                    why: mem.why,
-                    context: mem.context,
-                    learned: mem.learned,
-                    memory_type: mem.memory_type,
-                    importance: mem.importance,
-                    tags: mem.tags,
-                    topic_key: mem.topic_key,
-                    capture_prompt: None,
-                    encrypt: false,
-                };
-                store.save(input, engine.clone(), Some(embedding_store.clone()))?;
-                count += 1;
+
+            let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("json");
+            if ext == "md" {
+                let imported = crate::export::import_from_markdown(&content)?;
+                for mem in imported {
+                    let input = CreateMemoryInput {
+                        project: project.clone(),
+                        scope: Some(mem.scope),
+                        title: mem.title,
+                        content: mem.content,
+                        what: mem.what,
+                        why: mem.why,
+                        context: mem.context,
+                        learned: mem.learned,
+                        memory_type: mem.memory_type,
+                        importance: mem.importance,
+                        tags: mem.tags,
+                        topic_key: None,
+                        capture_prompt: None,
+                        encrypt: false,
+                    };
+                    store.save(input, engine.clone(), Some(embedding_store.clone()))?;
+                    count += 1;
+                }
+            } else {
+                let memories: Vec<crate::store::memory::Memory> = serde_json::from_str(&content)?;
+                for mem in memories {
+                    let input = CreateMemoryInput {
+                        project: project.clone(),
+                        scope: Some(mem.scope),
+                        title: mem.title,
+                        content: mem.content,
+                        what: mem.what,
+                        why: mem.why,
+                        context: mem.context,
+                        learned: mem.learned,
+                        memory_type: mem.memory_type,
+                        importance: mem.importance,
+                        tags: mem.tags,
+                        topic_key: mem.topic_key,
+                        capture_prompt: None,
+                        encrypt: false,
+                    };
+                    store.save(input, engine.clone(), Some(embedding_store.clone()))?;
+                    count += 1;
+                }
             }
             output::print_success(&format!(
                 "Imported {} memories from {}",

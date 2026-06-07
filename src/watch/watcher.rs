@@ -174,3 +174,50 @@ fn parse_simple(content: &str) -> ParsedFile {
         tags: vec![],
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_frontmatter_extracts_title() {
+        let content = "---\ntitle: Test Title\ntype: note\n---\ncontent here";
+        let parsed = parse_mneme_file(content);
+        assert_eq!(parsed.title, "Test Title");
+    }
+
+    #[test]
+    fn test_parse_frontmatter_extracts_type() {
+        let content = "---\ntitle: T\ntype: decision\n---\nbody";
+        let parsed = parse_mneme_file(content);
+        assert!(matches!(parsed.memory_type, MemoryType::Decision));
+    }
+
+    #[test]
+    fn test_parse_frontmatter_extracts_tags() {
+        let content = "---\ntitle: T\ntags: rust, auth, jwt\n---\nbody";
+        let parsed = parse_mneme_file(content);
+        assert_eq!(parsed.tags, vec!["rust", "auth", "jwt"]);
+    }
+
+    #[test]
+    fn test_parse_simple_uses_first_line_as_title() {
+        let content = "First Line Title\nRest of content\nMore content";
+        let parsed = parse_mneme_file(content);
+        assert_eq!(parsed.title, "First Line Title");
+    }
+
+    #[test]
+    fn test_parse_simple_rest_is_content() {
+        let content = "Title\nLine2\nLine3";
+        let parsed = parse_mneme_file(content);
+        assert!(parsed.content.contains("Line2"));
+    }
+
+    #[test]
+    fn test_parse_empty_frontmatter_title_falls_back_to_body() {
+        let content = "---\n---\nfallback title\nsome content";
+        let parsed = parse_mneme_file(content);
+        assert!(!parsed.title.is_empty());
+    }
+}

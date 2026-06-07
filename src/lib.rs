@@ -3,6 +3,7 @@ pub mod config;
 pub mod crypto;
 pub mod embeddings;
 pub mod error;
+pub mod export;
 pub mod http;
 pub mod mcp;
 pub mod store;
