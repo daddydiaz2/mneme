@@ -438,6 +438,29 @@ Los hooks se encadenan: la salida del plugin N es la entrada del plugin N+1.
 
 ## Instalacion
 
+### Con Docker
+
+```bash
+# Construir la imagen
+docker build -t mneme:latest .
+
+# Ejecutar el servidor HTTP (con persistencia en volumen local)
+docker run -d \
+  --name mneme \
+  -p 8080:8080 \
+  -v mneme-data:/app/data \
+  -v $HOME/.config/mneme/plugins:/app/plugins \
+  mneme:latest
+
+# Usar el CLI directamente
+docker run --rm -v mneme-data:/app/data mneme:latest mneme list --project mi-proyecto
+
+# TUI (requiere terminal interactiva)
+docker run --rm -it -v mneme-data:/app/data mneme:latest mneme tui
+```
+
+La imagen incluye todas las features habilitadas (embeddings ONNX + plugins WASM).
+
 ### Desde código fuente
 
 ```bash
@@ -829,7 +852,14 @@ mneme/
 │   ├── plugin_tests.rs
 │   └── tui_graph_tests.rs
 ├── Cargo.toml
-└── README.md
+├── Cargo.lock
+├── Dockerfile
+├── .dockerignore
+├── README.md
+├── docs/
+│   └── api.http                   # Ejemplos interactivos de API REST
+└── assets/
+    └── imagen.png                 # Banner y recursos visuales
 ```
 
 ---
@@ -856,11 +886,11 @@ mneme/
 - [x] Feature flag `embeddings` — binario base 13 MB
 - [x] Plugins WASM con extism (feature flag `plugins`)
 - [x] Setup automático para Claude Code, OpenCode, Continue
+- [x] Docker image oficial con todas las features
+- [x] Documentación de API con ejemplos interactivos
 
 ### Planificado
 
-- [ ] Docker image oficial
-- [ ] Documentación de API con ejemplos interactivos
 - [ ] Cobertura de tests al 60%+
 
 ---

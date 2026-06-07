@@ -1,0 +1,15 @@
+target/
+.git/
+.github/
+.vscode/
+.opencode/
+tests/
+assets/
+docs/
+*.png
+*.http
+Dockerfile
+.dockerignore
+mneme_prompt_*.md
+mneme_v*.md
+skills-lock.json
