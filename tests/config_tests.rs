@@ -1,6 +1,29 @@
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use mneme::config::settings::Settings;
+
+static CONFIG_LOCK: Mutex<()> = Mutex::new(());
+
+/// Helper para tests que modifican variables de entorno de config.
+fn with_test_config<F>(f: F)
+where
+    F: FnOnce(),
+{
+    let _lock = CONFIG_LOCK.lock().unwrap();
+    let tmp = std::env::temp_dir().join(format!(
+        "mneme_config_env_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::env::set_var("XDG_CONFIG_HOME", &tmp);
+    f();
+    std::env::remove_var("XDG_CONFIG_HOME");
+    std::fs::remove_dir_all(&tmp).ok();
+}
 
 // ── Defaults ─────────────────────────────────────────────────────────────────
 
@@ -49,6 +72,7 @@ fn test_sync_config_default_has_hostname() {
 
 #[test]
 fn test_apply_env_overrides_port() {
+    let _lock = CONFIG_LOCK.lock().unwrap();
     std::env::set_var("MNEME_PORT", "9999");
     let mut s = Settings::default();
     s.apply_env_overrides();
@@ -234,48 +258,26 @@ port = 8080
 
 #[test]
 fn test_load_creates_default_when_no_file() {
-    // Temporarily override config path by using a temp dir
-    let tmp = std::env::temp_dir().join(format!("mneme_config_test_{}", std::process::id()));
-    let config_path = tmp.join("mneme/config.toml");
-
-    // Clean up old test config
-    std::fs::remove_file(&config_path).ok();
-
-    // Set env to use temp dir
-    std::env::set_var("XDG_CONFIG_HOME", &tmp);
-
-    let settings = Settings::load();
-    assert!(
-        settings.is_ok(),
-        "load should create default config: {:?}",
-        settings.err()
-    );
-
-    // Cleanup
-    std::env::remove_var("XDG_CONFIG_HOME");
-    std::fs::remove_file(&config_path).ok();
+    with_test_config(|| {
+        let config_path = Settings::config_path();
+        std::fs::remove_file(&config_path).ok();
+        let settings = Settings::load();
+        assert!(settings.is_ok(), "load should create default config: {:?}", settings.err());
+    });
 }
 
 #[test]
 fn test_save_writes_valid_toml() {
-    let tmp = std::env::temp_dir().join(format!("mneme_config_save_{}", std::process::id()));
-    let config_dir = tmp.join("mneme");
-    std::fs::create_dir_all(&config_dir).ok();
-    let config_path = config_dir.join("config.toml");
-
-    std::env::set_var("XDG_CONFIG_HOME", &tmp);
-
-    let s = Settings::default();
-    let result = s.save();
-    assert!(result.is_ok(), "save should succeed: {:?}", result.err());
-    assert!(config_path.exists(), "config file should exist");
-
-    // Read back and verify
-    let content = std::fs::read_to_string(&config_path).unwrap();
-    assert!(content.contains("[server]"));
-    assert!(content.contains("port = 8080"));
-
-    // Cleanup
-    std::env::remove_var("XDG_CONFIG_HOME");
-    std::fs::remove_file(&config_path).ok();
+    with_test_config(|| {
+        let config_path = Settings::config_path();
+        let config_dir = config_path.parent().unwrap();
+        std::fs::create_dir_all(config_dir).ok();
+        let s = Settings::default();
+        let result = s.save();
+        assert!(result.is_ok(), "save should succeed: {:?}", result.err());
+        assert!(config_path.exists(), "config file should exist");
+        let content = std::fs::read_to_string(&config_path).unwrap();
+        assert!(content.contains("[server]"));
+        assert!(content.contains("port = 8080"));
+    });
 }
