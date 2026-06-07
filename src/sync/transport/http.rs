@@ -71,3 +71,69 @@ impl HttpTransport {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_http_transport_hello_unreachable() {
+        // Use invalid URL that fails connection immediately (no DNS resolution needed)
+        let transport = HttpTransport::new("http://255.255.255.255:1".to_string()).unwrap();
+        let hello = SyncHello {
+            project: "test".to_string(),
+            peer_id: uuid::Uuid::nil(),
+            peer_name: "test".to_string(),
+            mneme_version: "0.1.0".to_string(),
+            memory_count: 0,
+            heads: std::collections::HashMap::new(),
+        };
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            transport.hello(&hello),
+        )
+        .await;
+        assert!(result.is_ok(), "hello should complete within timeout");
+        assert!(result.unwrap().is_err(), "hello to unreachable should error");
+    }
+
+    #[tokio::test]
+    async fn test_http_transport_pull_unreachable() {
+        let transport = HttpTransport::new("http://255.255.255.255:1".to_string()).unwrap();
+        let request = SyncRequest {
+            project: "test".to_string(),
+            have: std::collections::HashMap::new(),
+        };
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            transport.pull(&request),
+        )
+        .await;
+        assert!(result.is_ok(), "pull should complete within timeout");
+        assert!(result.unwrap().is_err(), "pull from unreachable should error");
+    }
+
+    #[tokio::test]
+    async fn test_http_transport_push_unreachable() {
+        let transport = HttpTransport::new("http://255.255.255.255:1".to_string()).unwrap();
+        let response = SyncResponse {
+            project: "test".to_string(),
+            changes: vec![],
+            tombstones: vec![],
+        };
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            transport.push(&response),
+        )
+        .await;
+        assert!(result.is_ok(), "push should complete within timeout");
+        assert!(result.unwrap().is_err(), "push to unreachable should error");
+    }
+
+    #[test]
+    fn test_http_transport_invalid_base_url() {
+        let result = HttpTransport::new(String::new());
+        // Empty base URL is technically valid for the client, just won't work for requests
+        assert!(result.is_ok());
+    }
+}

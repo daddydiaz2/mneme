@@ -6,7 +6,7 @@
 
 ![Rust](https://img.shields.io/badge/Rust-2021-CE422B?logo=rust&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-FTS5-003B57?logo=sqlite&logoColor=white)
-![MCP](https://img.shields.io/badge/MCP-40_tools-6C3483?logo=anthropic&logoColor=white)
+![MCP](https://img.shields.io/badge/MCP-64_tools-6C3483?logo=anthropic&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 **Sistema de memoria persistente para agentes de IA** — búsqueda híbrida (FTS5 + fuzzy + embeddings ONNX), encriptación age/SSH, sync CRDT P2P, TUI interactiva con grafo visual, plugins WASM, MCP server y HTTP API.
@@ -773,6 +773,191 @@ Contenido libre de la memoria...
 
 ---
 
+## Memory Intelligence (Fase 1+2+3)
+
+Capa de inteligencia sobre el almacenamiento crudo. mneme extrae entidades, detecta conflictos, comprime contexto, y mantiene ventanas de validez temporal.
+
+### Extracción de Entidades
+
+Detección automática de URLs, file paths, tecnologías, dependencias y conceptos CamelCase al guardar cada memoria.
+
+- `mem_entity_extract(id|text)` — extrae entidades de una memoria o texto
+- `mem_entity_search(query, entity_type?)` — busca memorias por entidad
+- `mem_entity_links(id)` — memorias linkeadas por entidad compartida
+- `mem_entity_frequent(project)` — entidades más frecuentes del proyecto
+
+Las entidades también crean `entity_links` cross-memory cuando dos memorias mencionan la misma entidad, con `link_strength` basado en co-ocurrencia.
+
+### Detección de Conflictos con LLM-Judge
+
+Cuando se guarda una memoria que comparte `topic_key` o tiene título muy similar (fuzzy ≥80), se crea automáticamente un `relation_candidate` pendiente.
+
+- `mem_judge(memory_id_a, memory_id_b, candidate_id, judged_relation, reasoning)` — el agente emite juicio
+- `mem_compare(memory_id_a, memory_id_b)` — comparación estructurada para razonar
+- `mem_conflict_candidates(project, status)` — lista candidatos pendientes
+
+Si el juicio es `conflicts_with`, `supersedes`, o `extends`, se crea la relación real. Si es `supersedes`, la memoria anterior se depreca automáticamente.
+
+### Passive Capture
+
+`mem_capture_passive` parsea output de sesiones y extrae memorias automáticamente. Detecta secciones como `## Key Learnings`, `## Decisions`, `## Architecture`, etc.
+
+```markdown
+## Key Learnings
+- Rust's async runtime works well with tokio
+- Memory is stored as bytes in BLOB
+```
+
+→ Crea automáticamente memorias de tipo `learning` con `topic_key` apropiado.
+
+### Búsqueda Multi-Señal con RRF
+
+`mem_search` ahora corre 5 señales en paralelo y las fusiona con **Reciprocal Rank Fusion (RRF k=60)**:
+
+1. **FTS5** full-text (BM25)
+2. **Fuzzy** title matching
+3. **Semantic** (cosine similarity)
+4. **Entity** matching (boost memorias que comparten entidades con el query)
+5. **Temporal** recency (preferir memorias accedidas recientemente)
+
+Cross-encoder reranking opcional refina el top-N después de la búsqueda inicial con `search_reranked()`.
+
+### Validez Temporal (ventanas bi-temporales)
+
+Cada memoria puede tener una ventana de validez (`valid_from` / `valid_until`) y un JSON de provenance.
+
+- `mem_temporal_query(query, at_time)` — "¿qué era verdad en fecha X?"
+- Auto-invalidation: cuando se juzga un `supersedes`, la memoria anterior recibe `valid_until` automáticamente
+- Provenance tracking: cada memoria puede tener un JSON array con `{agent, action, timestamp}`
+- `valid_from`, `valid_until`, `provenance` aceptados también en `mem_save` como params opcionales
+
+### Context Compression
+
+4 estrategias para comprimir memorias antes de inyectarlas en prompts:
+
+- `mem_compress(id, strategy)` — comprime 1 memoria
+- `mem_compress_batch(project, strategy)` — comprime proyecto completo
+- `mem_compress_context(project, strategy)` — genera bloque de contexto comprimido
+
+Estrategias: `truncate`, `smart_summary` (1er párrafo + oraciones clave), `keywords_only`, `minimal` (solo tipo + título + keywords). Reversible — originales siempre disponibles vía `mem_get`.
+
+### Multi-Provider Embeddings
+
+Soporte para múltiples backends vía `MNEME_EMBEDDING_PROVIDER`:
+
+| Provider | Configuración | Modelos |
+|----------|---------------|---------|
+| `onnx` (default) | `MNEME_EMBEDDINGS_MODEL` | bge-small/base/large-en-v1.5, all-MiniLM-L6-v2 |
+| `openai` | `OPENAI_API_KEY` | text-embedding-3-small, ada-002, ollama/... via prefix |
+| `ollama` | `OLLAMA_HOST` (default `http://localhost:11434`) | nomic-embed-text, mxbai-embed-large |
+| `google` | `GOOGLE_API_KEY` | embedding-001, text-embedding-004 |
+
+```bash
+# OpenAI
+MNEME_EMBEDDING_PROVIDER=openai OPENAI_API_KEY=sk-... mneme mcp
+
+# Ollama local
+MNEME_EMBEDDING_PROVIDER=ollama MNEME_EMBEDDINGS_MODEL=nomic-embed-text mneme mcp
+```
+
+### File Watcher Auto-Indexing
+
+`mem_watch_scan(directory, ext, project)` escanea un directorio y auto-indexa archivos `.md` como memorias. Detecta cambios via content hash y re-indexa solo cuando el archivo cambió.
+
+Formato esperado:
+
+```markdown
+---
+title: My Memory
+type: decision
+importance: high
+tags: [rust, auth]
+what: We chose Rust for the auth service
+why: Better async performance
+---
+Body content here
+```
+
+Frontmatter soporta: `title`, `type`, `importance`, `tags`, `what`, `why`, `context`, `learned`.
+
+### Obsidian Vault Export
+
+`mem_obsidian_export(project, output)` exporta el grafo de conocimiento a un vault de Obsidian:
+
+```
+mneme-export/
+├── memories/
+│   ├── My Memory.md          (frontmatter + structured fields + [[wikilinks]])
+│   └── Other Memory.md
+├── README.md                 (índice con memorias por tipo + más conectadas)
+├── .graph/
+│   └── graph.json            (graph data para visualización)
+└── .obsidian/
+    └── app.json              (metadata del vault)
+```
+
+Cada memoria incluye: YAML frontmatter (id, type, importance, tags, structured fields, temporal fields), `[[Wikilinks]]` a memorias relacionadas via `MemoryRelation`, y tags Obsidian inline.
+
+### Cloud Sync Infrastructure
+
+`mem_cloud_enroll(server, token, project)` inscribe el proyecto con un servidor cloud mneme.
+
+```bash
+# Levantar servidor cloud (Docker)
+docker compose -f docker-compose.cloud.yml up -d
+
+# Enroll local
+mneme cloud enroll --server http://localhost:8080 --token $MNEME_CLOUD_TOKEN --project myproject
+# O via MCP
+mem_cloud_enroll(server="http://...", token="...", project="myproject")
+```
+
+- `mem_cloud_enroll` — inscribe el proyecto con un servidor
+- `mem_cloud_sync` — ejecuta un ciclo de sync completo
+- `mem_cloud_status` — estado y log de syncs recientes
+
+Endpoints HTTP equivalentes: `POST /api/v1/cloud/enroll`, `POST /api/v1/cloud/sync`, `GET /api/v1/cloud/status`.
+
+Docker compose incluido (`docker-compose.cloud.yml` + `Dockerfile.cloud`) para deployment self-hosted.
+
+### Resumen de MCP Tools nuevos (Fases 1+2+3)
+
+**Entity (4):** `mem_entity_extract`, `mem_entity_search`, `mem_entity_links`, `mem_entity_frequent`
+
+**Conflict (3):** `mem_judge`, `mem_compare`, `mem_conflict_candidates`
+
+**Capture (1):** `mem_capture_passive`
+
+**Progressive (2):** `mem_expand` (Layer 2), `mem_transcript` (Layer 3)
+
+**Temporal (1):** `mem_temporal_query`
+
+**Compression (3):** `mem_compress`, `mem_compress_batch`, `mem_compress_context`
+
+**Watcher (1):** `mem_watch_scan`
+
+**Export (1):** `mem_obsidian_export`
+
+**Cloud (3):** `mem_cloud_enroll`, `mem_cloud_sync`, `mem_cloud_status`
+
+Total: **24 nuevos MCP tools** (40 → 64).
+
+### Tests añadidos
+
+```
+tests/entities_tests.rs        17 tests
+tests/compress_tests.rs        15 tests
+tests/obsidian_tests.rs         9 tests
+tests/cloud_tests.rs            9 tests
+tests/rerank_tests.rs           9 tests
+tests/watcher_new_tests.rs     12 tests
+────────────────────────────────────────
+Total nuevos:                  71 tests
+```
+
+Total suite de tests: **148 tests pasando** (1 sync timeout preexistente de automerge).
+
+
 ## Estructura del Proyecto
 
 ```
@@ -888,6 +1073,21 @@ mneme/
 - [x] Setup automático para Claude Code, OpenCode, Continue
 - [x] Docker image oficial con todas las features
 - [x] Documentación de API con ejemplos interactivos
+- [x] **Entity extraction** (URLs, file paths, tecnologías, conceptos) con auto-linking cross-memory
+- [x] **LLM-judge conflict detection** con auto-invalidation de memorias supersedidas
+- [x] **Passive capture** desde output de sesiones (Key Learnings, Decisions, Architecture)
+- [x] **Multi-signal RRF search** (5 señales: FTS5, fuzzy, semantic, entity, recency)
+- [x] **Progressive 3-layer retrieval** (search → expand → transcript)
+- [x] **Cross-encoder reranking** opcional
+- [x] **Temporal validity windows** (`valid_from`, `valid_until`, `provenance`)
+- [x] **Context compression** (4 estrategias: truncate, smart_summary, keywords_only, minimal)
+- [x] **AgentFact memory type** + provenance tracking
+- [x] **Multi-provider embeddings** (ONNX, OpenAI, Ollama, Google)
+- [x] **File watcher** con auto-indexing de .md y content hash detection
+- [x] **Obsidian vault export** con frontmatter, wikilinks, y graph data
+- [x] **Cloud sync** con enrollment, autosync background, y docker compose self-hosted
+- [x] **Cloud HTTP endpoints** (`/api/v1/cloud/{enroll,sync,status}`)
+- [x] **Cloud MCP tools** (`mem_cloud_enroll`, `mem_cloud_sync`, `mem_cloud_status`)
 
 ### Planificado
 

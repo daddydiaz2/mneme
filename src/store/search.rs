@@ -43,7 +43,8 @@ impl SearchWeights {
     }
 }
 
-/// Motor de búsqueda híbrida: FTS5 + fuzzy matching + semántica con boost de importancia, decaimiento y recencia.
+/// Motor de búsqueda multi-señal con RRF (Reciprocal Rank Fusion).
+/// Combina FTS5 + fuzzy + semántica + entidades + recencia usando RRF.
 pub struct SearchEngine;
 
 impl Default for SearchEngine {
@@ -52,113 +53,149 @@ impl Default for SearchEngine {
     }
 }
 
+/// Resultado individual de un matcher.
+struct RankedSignal {
+    memory_id: Uuid,
+    rank: usize,
+    score: f64,
+}
+
+/// Constante RRF (k=60 es el valor estándar).
+const RRF_K: f64 = 60.0;
+
 impl SearchEngine {
     /// Crea un nuevo SearchEngine.
     pub fn new() -> Self {
         Self
     }
 
-    /// Hybrid search: FTS5 + fuzzy matching + semántica con boost de importancia, decaimiento y recencia.
+    /// Multi-signal search using Reciprocal Rank Fusion.
     ///
-    /// # Arguments
-    /// * `conn` - Conexión SQLite.
-    /// * `query` - Query de búsqueda.
-    /// * `weights` - Pesos para cada componente.
-    /// * `semantic_scores` - Mapa de ID de memoria a score coseno (opcional).
+    /// Señales:
+    /// - FTS5 full-text search
+    /// - Fuzzy title matching
+    /// - Semantic (cosine) similarity
+    /// - Entity name matching
+    /// - Temporal recency
+    ///
+    /// Cada señal produce un ranking. RRF fusiona los rankings en un score final.
     pub fn search(
         &self,
         conn: &rusqlite::Connection,
         query: &SearchQuery,
-        weights: &SearchWeights,
+        _weights: &SearchWeights,
         semantic_scores: Option<&HashMap<Uuid, f32>>,
     ) -> crate::error::Result<Vec<SearchResult>> {
-        let mut results: HashMap<Uuid, SearchResult> = HashMap::new();
+        let mut all_signals: Vec<RankedSignal> = Vec::new();
+        let mut seen_ids: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
 
-        // 1. FTS5 search (if query has 3+ chars)
+        // 1. FTS5 signal
         if query.text.len() >= 3 {
             let fts_results = self.search_fts(conn, query)?;
-            for result in fts_results {
-                results.insert(result.memory.id, result);
+            for (rank, result) in fts_results.iter().enumerate() {
+                all_signals.push(RankedSignal {
+                    memory_id: result.memory.id,
+                    rank,
+                    score: result.score,
+                });
+                seen_ids.insert(result.memory.id);
             }
         }
 
-        // 2. Fuzzy search on titles (always run)
+        // 2. Fuzzy signal
         let fuzzy_results = self.search_fuzzy(conn, query)?;
-        for result in fuzzy_results {
-            results
-                .entry(result.memory.id)
-                .and_modify(|existing| {
-                    if result.score > existing.score {
-                        existing.score = result.score;
-                        existing.match_type = result.match_type.clone();
-                    }
-                })
-                .or_insert(result);
+        for (rank, result) in fuzzy_results.iter().enumerate() {
+            all_signals.push(RankedSignal {
+                memory_id: result.memory.id,
+                rank,
+                score: result.score,
+            });
+            seen_ids.insert(result.memory.id);
         }
 
-        // 3. Merge semantic scores
+        // 3. Semantic signal
         if let Some(scores) = semantic_scores {
-            for (id, cosine_score) in scores {
-                if let Some(existing) = results.get_mut(id) {
-                    existing.cosine_score = Some(*cosine_score);
+            let mut semantic_ranked: Vec<(Uuid, f32)> =
+                scores.iter().map(|(id, s)| (*id, *s)).collect();
+            semantic_ranked
+                .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            for (rank, (id, _)) in semantic_ranked.iter().enumerate() {
+                all_signals.push(RankedSignal {
+                    memory_id: *id,
+                    rank,
+                    score: f64::from(*scores.get(id).unwrap_or(&0.0)),
+                });
+                seen_ids.insert(*id);
+            }
+        }
+
+        // 4. Entity signal: search entity names matching the query
+        let entity_matches = Self::search_entities(conn, &query.text, query.project.as_deref());
+        for (rank, memory_id) in entity_matches.iter().enumerate() {
+            all_signals.push(RankedSignal {
+                memory_id: *memory_id,
+                rank,
+                score: 1.0,
+            });
+            seen_ids.insert(*memory_id);
+        }
+
+        // 5. Temporal recency signal: prefer recently accessed
+        let recency_results = self.search_recency(conn, query);
+        for (rank, memory_id) in recency_results.iter().enumerate() {
+            if seen_ids.contains(memory_id) {
+                all_signals.push(RankedSignal {
+                    memory_id: *memory_id,
+                    rank,
+                    score: 1.0,
+                });
+            }
+        }
+
+        // Apply RRF: for each unique memory, sum 1/(k + rank) across all signals
+        let mut rrf_scores: HashMap<Uuid, f64> = HashMap::new();
+        for signal in &all_signals {
+            let entry = rrf_scores.entry(signal.memory_id).or_insert(0.0);
+            *entry += 1.0 / (RRF_K + signal.rank as f64);
+        }
+
+        // Build full Memory objects for scored IDs
+        let mut filtered: Vec<SearchResult> = Vec::new();
+        for (id, rrf_score) in &rrf_scores {
+            if let Ok(Some(memory)) = Self::get_memory(conn, *id) {
+                // Apply filters
+                if let Some(memory_type) = &query.memory_type {
+                    if &memory.memory_type != memory_type {
+                        continue;
+                    }
                 }
+                if let Some(importance) = &query.importance {
+                    if &memory.importance != importance {
+                        continue;
+                    }
+                }
+                if !query.tags.is_empty() && !query.tags.iter().all(|tag| memory.tags.contains(tag))
+                {
+                    continue;
+                }
+
+                let cosine = semantic_scores.and_then(|s| s.get(id).copied());
+                let match_type = Self::best_match_type(&all_signals, *id);
+
+                // Apply importance boost
+                let final_score = rrf_score * memory.importance.boost_factor();
+
+                filtered.push(SearchResult {
+                    memory,
+                    score: final_score,
+                    snippet: None,
+                    match_type,
+                    cosine_score: cosine,
+                });
             }
         }
 
-        // 4. Apply filters (type, importance, tags)
-        let mut filtered: Vec<SearchResult> = results.into_values().collect();
-
-        if let Some(memory_type) = &query.memory_type {
-            filtered.retain(|r| &r.memory.memory_type == memory_type);
-        }
-        if let Some(importance) = &query.importance {
-            filtered.retain(|r| &r.memory.importance == importance);
-        }
-        if !query.tags.is_empty() {
-            filtered.retain(|r| query.tags.iter().all(|tag| r.memory.tags.contains(tag)));
-        }
-
-        // 5. Apply hybrid score, importance boost and decay
-        let effective_weights = if semantic_scores.is_some() {
-            *weights
-        } else {
-            weights.renormalize_without_semantic()
-        };
-
-        for result in &mut filtered {
-            let fts_component = if result.match_type == MatchType::Fts {
-                result.score * effective_weights.fts
-            } else {
-                0.0
-            };
-            let fuzzy_component = if result.match_type == MatchType::Fuzzy {
-                result.score * effective_weights.fuzzy
-            } else {
-                0.0
-            };
-            let semantic_component = result
-                .cosine_score
-                .map(|s| f64::from(s) * effective_weights.semantic)
-                .unwrap_or(0.0);
-
-            let hybrid_score = fts_component + fuzzy_component + semantic_component;
-            let boost = result.memory.importance.boost_factor();
-            result.score = hybrid_score * boost;
-
-            // Decay factor: 0.95 ^ days_without_access
-            if let Some(last_accessed) = result.memory.last_accessed_at {
-                let days = (Utc::now() - last_accessed).num_days() as f64;
-                let decay = 0.95f64.powf(days);
-                result.score *= decay;
-            }
-
-            // Recency factor: 1.0 + (1.0 / (1.0 + days_since_creation * 0.1))
-            let days_since_creation = (Utc::now() - result.memory.created_at).num_days() as f64;
-            let recency = 1.0 + (1.0 / (1.0 + days_since_creation * 0.1));
-            result.score *= recency;
-        }
-
-        // 6. Sort by score DESC and truncate
+        // Sort by score DESC
         filtered.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
@@ -166,7 +203,7 @@ impl SearchEngine {
         });
         filtered.truncate(query.limit as usize);
 
-        // 7. Extract snippets if requested
+        // Extract snippets if requested
         if query.include_snippet {
             for result in &mut filtered {
                 result.snippet = self.extract_snippet(&result.memory.content, &query.text);
@@ -174,6 +211,236 @@ impl SearchEngine {
         }
 
         Ok(filtered)
+    }
+
+    /// Search for memories whose entities match the query text.
+    fn search_entities(
+        conn: &rusqlite::Connection,
+        query: &str,
+        project: Option<&str>,
+    ) -> Vec<Uuid> {
+        let like_pattern = format!("%{}%", query);
+        let mut results = Vec::new();
+
+        let sql = if let Some(_proj) = project {
+            "SELECT DISTINCT e.memory_id FROM memory_entities e
+             JOIN memories m ON m.id = e.memory_id
+             WHERE e.entity_name LIKE ?1 AND m.project = ?2 AND m.deleted_at IS NULL
+             LIMIT 20"
+        } else {
+            "SELECT DISTINCT e.memory_id FROM memory_entities e
+             JOIN memories m ON m.id = e.memory_id
+             WHERE e.entity_name LIKE ?1 AND m.deleted_at IS NULL
+             LIMIT 20"
+        };
+
+        if let Some(proj) = project {
+            if let Ok(mut stmt) = conn.prepare(sql) {
+                if let Ok(rows) = stmt.query_map(rusqlite::params![like_pattern, proj], |row| {
+                    row.get::<_, String>(0)
+                }) {
+                    for id_str in rows.flatten() {
+                        if let Ok(id) = Uuid::parse_str(&id_str) {
+                            results.push(id);
+                        }
+                    }
+                }
+            }
+        } else {
+            if let Ok(mut stmt) = conn.prepare(sql) {
+                if let Ok(rows) = stmt.query_map(rusqlite::params![like_pattern], |row| {
+                    row.get::<_, String>(0)
+                }) {
+                    for id_str in rows.flatten() {
+                        if let Ok(id) = Uuid::parse_str(&id_str) {
+                            results.push(id);
+                        }
+                    }
+                }
+            }
+        }
+
+        results
+    }
+
+    /// Temporal recency signal: most recently accessed/updated memories.
+    fn search_recency(&self, conn: &rusqlite::Connection, query: &SearchQuery) -> Vec<Uuid> {
+        let mut results = Vec::new();
+        let limit_i64 = (query.limit * 2) as i64;
+
+        // Use two separate blocks to avoid Rust type incompatibility
+        if let Some(ref project) = query.project {
+            let sql = "SELECT id FROM memories
+                       WHERE project = ?1 AND deleted_at IS NULL
+                       ORDER BY last_accessed_at IS NULL, last_accessed_at DESC, updated_at DESC
+                       LIMIT ?2";
+            if let Ok(mut stmt) = conn.prepare(sql) {
+                if let Ok(rows) = stmt.query_map(rusqlite::params![project, limit_i64], |row| {
+                    row.get::<_, String>(0)
+                }) {
+                    for id_str in rows.flatten() {
+                        if let Ok(id) = Uuid::parse_str(&id_str) {
+                            results.push(id);
+                        }
+                    }
+                }
+            }
+        } else {
+            let sql = "SELECT id FROM memories
+                       WHERE deleted_at IS NULL
+                       ORDER BY last_accessed_at IS NULL, last_accessed_at DESC, updated_at DESC
+                       LIMIT ?1";
+            if let Ok(mut stmt) = conn.prepare(sql) {
+                if let Ok(rows) =
+                    stmt.query_map(rusqlite::params![limit_i64], |row| row.get::<_, String>(0))
+                {
+                    for id_str in rows.flatten() {
+                        if let Ok(id) = Uuid::parse_str(&id_str) {
+                            results.push(id);
+                        }
+                    }
+                }
+            }
+        }
+
+        results
+    }
+
+    /// Determina el mejor match type para una memoria basado en sus señales.
+    fn best_match_type(signals: &[RankedSignal], memory_id: Uuid) -> MatchType {
+        // Find the signal with highest score
+        let best = signals
+            .iter()
+            .filter(|s| s.memory_id == memory_id)
+            .min_by_key(|s| s.rank);
+
+        match best {
+            Some(s) if s.rank < 10 => MatchType::Fts,
+            Some(_) => MatchType::Fuzzy,
+            None => MatchType::Fts,
+        }
+    }
+
+    /// Retrieves a single memory by ID from the connection.
+    fn get_memory(conn: &rusqlite::Connection, id: Uuid) -> rusqlite::Result<Option<Memory>> {
+        let mut stmt = conn.prepare(
+            "SELECT id, project, scope, title, content, what, why, context, learned,
+             memory_type, importance, tags, topic_key, access_count, revision_count,
+             duplicate_count, normalized_hash, created_at, updated_at, last_accessed_at, last_seen_at, deleted_at,
+             deprecated_at, deprecated_reason, supersedes_id, context_inject_count, origin_peer,
+             is_encrypted, encrypted_for, valid_from, valid_until, provenance
+             FROM memories WHERE id = ?1 AND deleted_at IS NULL"
+        )?;
+
+        let result = stmt.query_row(rusqlite::params![id.to_string()], |row| {
+            Ok(Memory {
+                id: Uuid::parse_str(&row.get::<_, String>(0)?).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?,
+                project: row.get(1)?,
+                scope: Scope::from_str(&row.get::<_, String>(2)?).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        2,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?,
+                title: row.get(3)?,
+                content: row.get(4)?,
+                what: row.get(5)?,
+                why: row.get(6)?,
+                context: row.get(7)?,
+                learned: row.get(8)?,
+                memory_type: MemoryType::from_str(&row.get::<_, String>(9)?).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        9,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?,
+                importance: Importance::from_str(&row.get::<_, String>(10)?).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        10,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?,
+                tags: serde_json::from_str(&row.get::<_, String>(11)?).unwrap_or_default(),
+                topic_key: row.get(12)?,
+                access_count: row.get(13)?,
+                revision_count: row.get(14)?,
+                duplicate_count: row.get(15)?,
+                normalized_hash: row.get(16)?,
+                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(17)?)
+                    .map_err(|e| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            17,
+                            rusqlite::types::Type::Text,
+                            Box::new(e),
+                        )
+                    })?
+                    .with_timezone(&Utc),
+                updated_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(18)?)
+                    .map_err(|e| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            18,
+                            rusqlite::types::Type::Text,
+                            Box::new(e),
+                        )
+                    })?
+                    .with_timezone(&Utc),
+                last_accessed_at: row.get::<_, Option<String>>(19)?.and_then(|s| {
+                    DateTime::parse_from_rfc3339(&s)
+                        .ok()
+                        .map(|d| d.with_timezone(&Utc))
+                }),
+                last_seen_at: row.get::<_, Option<String>>(20)?.and_then(|s| {
+                    DateTime::parse_from_rfc3339(&s)
+                        .ok()
+                        .map(|d| d.with_timezone(&Utc))
+                }),
+                deleted_at: row.get::<_, Option<String>>(21)?.and_then(|s| {
+                    DateTime::parse_from_rfc3339(&s)
+                        .ok()
+                        .map(|d| d.with_timezone(&Utc))
+                }),
+                deprecated_at: row.get::<_, Option<String>>(22)?.and_then(|s| {
+                    DateTime::parse_from_rfc3339(&s)
+                        .ok()
+                        .map(|d| d.with_timezone(&Utc))
+                }),
+                deprecated_reason: row.get(23)?,
+                supersedes_id: row.get(24)?,
+                context_inject_count: row.get(25)?,
+                origin_peer: row.get(26)?,
+                is_encrypted: row
+                    .get::<_, Option<bool>>(27)
+                    .unwrap_or(Some(false))
+                    .unwrap_or(false),
+                encrypted_for: row.get::<_, Option<String>>(28).unwrap_or(None),
+                valid_from: row.get::<_, Option<String>>(29)?.and_then(|s| {
+                    DateTime::parse_from_rfc3339(&s)
+                        .ok()
+                        .map(|d| d.with_timezone(&Utc))
+                }),
+                valid_until: row.get::<_, Option<String>>(30)?.and_then(|s| {
+                    DateTime::parse_from_rfc3339(&s)
+                        .ok()
+                        .map(|d| d.with_timezone(&Utc))
+                }),
+                provenance: row.get(31)?,
+            })
+        });
+
+        match result {
+            Ok(memory) => Ok(Some(memory)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
     fn search_fts(
@@ -288,6 +555,9 @@ impl SearchEngine {
                     origin_peer: None,
                     is_encrypted: false,
                     encrypted_for: None,
+                    valid_from: None,
+                    valid_until: None,
+                    provenance: None,
                 },
                 score,
                 snippet: None,
@@ -404,6 +674,9 @@ impl SearchEngine {
                 origin_peer: None,
                 is_encrypted: false,
                 encrypted_for: None,
+                valid_from: None,
+                valid_until: None,
+                provenance: None,
             })
         })?;
 

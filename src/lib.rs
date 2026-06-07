@@ -1,4 +1,6 @@
 pub mod cli;
+pub mod cloud;
+pub mod compress;
 pub mod config;
 pub mod crypto;
 pub mod embeddings;

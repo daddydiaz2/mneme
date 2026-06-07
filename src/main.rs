@@ -43,7 +43,11 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "embeddings")]
     let embeddings = if settings.embeddings.enabled {
         tracing::info!("inicializando motor de embeddings...");
-        match EmbeddingEngine::new(&settings.embeddings.cache_dir).await {
+        match EmbeddingEngine::new(
+                &settings.embeddings.cache_dir,
+                &settings.embeddings.provider,
+                &settings.embeddings.model,
+            ).await {
             Ok(engine) => {
                 tracing::info!(
                     model = %engine.model_name(),

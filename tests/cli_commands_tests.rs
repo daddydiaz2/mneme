@@ -27,6 +27,9 @@ fn save_memory(db: &Database, title: &str) -> Uuid {
         tags: vec![],
         topic_key: None,
         capture_prompt: None,
+        valid_from: None,
+        valid_until: None,
+        provenance: None,
     };
     db.memories().save(input, None, None).unwrap().id
 }

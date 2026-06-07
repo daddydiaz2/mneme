@@ -31,6 +31,14 @@ pub fn render(frame: &mut Frame, app: &App) {
             render_graph(frame, app, main_layout[1]);
             render_statusbar(frame, app, main_layout[2]);
         }
+        AppMode::EntityGraph => {
+            render_entity_graph(frame, app, main_layout[1]);
+            render_statusbar(frame, app, main_layout[2]);
+        }
+        AppMode::Temporal => {
+            render_temporal_view(frame, app, main_layout[1]);
+            render_statusbar(frame, app, main_layout[2]);
+        }
         _ => {
             let body_layout = Layout::default()
                 .direction(Direction::Horizontal)
@@ -59,7 +67,9 @@ pub fn render(frame: &mut Frame, app: &App) {
                 AppMode::Normal => {
                     render_statusbar(frame, app, main_layout[2]);
                 }
-                AppMode::Graph => {} // handled above
+                AppMode::Graph => {}       // handled above
+                AppMode::EntityGraph => {} // handled above
+                AppMode::Temporal => {}    // handled above
             }
         }
     }
@@ -68,7 +78,7 @@ pub fn render(frame: &mut Frame, app: &App) {
 fn render_header(frame: &mut Frame, app: &App, area: Rect) {
     let version = env!("CARGO_PKG_VERSION");
     let header_text = format!(
-        "mneme v{} │ Proyecto: {} │ [Q]uit [/]Search [Tab]Grafo [?]Help",
+        "mneme v{} │ Proyecto: {} │ [Q]uit [/]Search [Tab]Grafo [e]Ent [t]Time [?]Help",
         version, app.project
     );
     let header = Paragraph::new(header_text.as_str()).style(
@@ -318,10 +328,110 @@ fn render_graph(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(canvas, area);
 }
 
+fn render_entity_graph(frame: &mut Frame, app: &App, area: Rect) {
+    let lines = if let Some(ref eg) = app.entity_graph_data {
+        let mut items = vec!["┌─ Entidades Frecuentes ──────────────────────────┐".to_string()];
+        for (i, (name, etype, count)) in eg.frequent_entities.iter().take(20).enumerate() {
+            let prefix = if i == eg.selected { "> " } else { "  " };
+            items.push(format!("{}  {}  {}  ({})", prefix, etype, name, count));
+        }
+        items.push("└──────────────────────────────────────────────┘".to_string());
+        items.push(String::new());
+        items.push("[Tab/Esc] Volver  [r] Recargar  [Q] Salir".to_string());
+        items
+    } else {
+        vec!["Cargando...".to_string()]
+    };
+
+    let text = lines.join("\n");
+    let para =
+        Paragraph::new(text.as_str()).style(Style::default().fg(ratatui::style::Color::Cyan));
+    frame.render_widget(para, area);
+}
+
+fn render_temporal_view(frame: &mut Frame, app: &App, area: Rect) {
+    let lines = if let Some(ref td) = app.temporal_data {
+        let mode_label = match td.display_mode {
+            0 => "ALL (mostrando todas)",
+            1 => "VALID AT now (válidas ahora)",
+            2 => "EXPIRED (expiradas)",
+            _ => "",
+        };
+        let mut items = vec![format!(
+            "┌─ Vista Temporal: {} ─────────────────┐",
+            mode_label
+        )];
+
+        let valid_now = td
+            .memories
+            .iter()
+            .filter(|m| match (m.valid_from, m.valid_until) {
+                (Some(vf), Some(vu)) => vf <= td.reference_time && td.reference_time < vu,
+                (Some(vf), None) => vf <= td.reference_time,
+                (None, Some(vu)) => td.reference_time < vu,
+                (None, None) => true,
+            })
+            .count();
+
+        let expired = td
+            .memories
+            .iter()
+            .filter(|m| {
+                m.valid_until
+                    .map(|vu| vu <= td.reference_time)
+                    .unwrap_or(false)
+            })
+            .count();
+
+        items.push(format!("  Totales:   {} memorias", td.memories.len()));
+        items.push(format!("  Válidas:   {} memorias", valid_now));
+        items.push(format!("  Expiradas: {} memorias", expired));
+        items.push(format!(
+            "  Referencia: {}\n",
+            td.reference_time.format("%Y-%m-%d %H:%M UTC")
+        ));
+
+        if td.display_mode == 0 || td.display_mode == 1 {
+            items.push("  Memorias con ventana de validez:".to_string());
+            for mem in td
+                .memories
+                .iter()
+                .filter(|m| m.valid_from.is_some() || m.valid_until.is_some())
+                .take(10)
+            {
+                let vf = mem
+                    .valid_from
+                    .map(|d| d.format("%Y-%m-%d").to_string())
+                    .unwrap_or_else(|| "---".to_string());
+                let vu = mem
+                    .valid_until
+                    .map(|d| d.format("%Y-%m-%d").to_string())
+                    .unwrap_or_else(|| "---".to_string());
+                items.push(format!("    {} [{} → {}]", mem.title, vf, vu));
+            }
+        }
+
+        items.push(String::new());
+        items.push("[Tab/Esc] Volver  [m] Cycle mode  [r] Recargar  [Q] Salir".to_string());
+        items
+    } else {
+        vec!["Cargando...".to_string()]
+    };
+
+    let text = lines.join("\n");
+    let para =
+        Paragraph::new(text.as_str()).style(Style::default().fg(ratatui::style::Color::Cyan));
+    frame.render_widget(para, area);
+}
+
 fn render_statusbar(frame: &mut Frame, app: &App, area: Rect) {
     let text = match app.mode {
         AppMode::Graph => {
             "[Tab/Esc] Volver  [j/k] Seleccionar nodo  [r] Recargar  [Q] Salir".to_string()
+        }
+        AppMode::EntityGraph => "[Tab/Esc] Volver  [r] Recargar  [Q] Salir".to_string(),
+        AppMode::Temporal => {
+            "[Tab/Esc] Volver  [m] Cycle display  [r] Recargar  [Q] Salir".to_string()
         }
         _ => {
             let base = "[↑↓] Navegar  [Tab] Grafo  [/] Buscar  [d] Eliminar  [Q] Salir";
@@ -401,6 +511,7 @@ fn memory_type_abbrev(mt: &MemoryType) -> &'static str {
         MemoryType::Config => "CFG",
         MemoryType::Discovery => "DIS",
         MemoryType::Learning => "LRN",
+        MemoryType::AgentFact => "AGT",
     }
 }
 

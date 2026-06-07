@@ -34,6 +34,9 @@ fn test_crdt_merge_is_commutative() {
                 tags: vec!["tag1".to_string()],
                 topic_key: None,
                 capture_prompt: None,
+                valid_from: None,
+                valid_until: None,
+                provenance: None,
             },
             None,
             None,
@@ -57,6 +60,9 @@ fn test_crdt_merge_is_commutative() {
                 tags: vec!["tag1".to_string()],
                 topic_key: None,
                 capture_prompt: None,
+                valid_from: None,
+                valid_until: None,
+                provenance: None,
             },
             None,
             None,
@@ -104,6 +110,9 @@ fn test_crdt_merge_is_idempotent() {
                 tags: vec![],
                 topic_key: None,
                 capture_prompt: None,
+                valid_from: None,
+                valid_until: None,
+                provenance: None,
             },
             None,
             None,
@@ -150,6 +159,9 @@ fn test_crdt_doc_roundtrip() {
                 tags: vec!["tag1".to_string(), "tag2".to_string()],
                 topic_key: Some("test/key".to_string()),
                 capture_prompt: None,
+                valid_from: None,
+                valid_until: None,
+                provenance: None,
             },
             None,
             None,
@@ -259,6 +271,9 @@ fn test_sync_engine_build_hello() {
                 tags: vec![],
                 topic_key: None,
                 capture_prompt: None,
+                valid_from: None,
+                valid_until: None,
+                provenance: None,
             },
             None,
             None,
@@ -302,6 +317,9 @@ fn test_apply_response_creates_memory() {
                 tags: vec![],
                 topic_key: None,
                 capture_prompt: None,
+                valid_from: None,
+                valid_until: None,
+                provenance: None,
             },
             None,
             None,
@@ -335,4 +353,45 @@ fn test_apply_response_creates_memory() {
     let stats = engine.apply_response(&response).unwrap();
     assert_eq!(stats.memories_applied, 1);
     assert_eq!(stats.conflicts_resolved, 0);
+}
+
+#[test]
+fn test_build_response_returns_project() {
+    let db = setup_db();
+    let config = mneme::config::settings::SyncConfig {
+        enabled: true,
+        peer_id: Uuid::new_v4().to_string(),
+        peer_name: "test-peer".to_string(),
+        auto_sync_interval: 0,
+        compress: false,
+    };
+    let engine = mneme::sync::engine::SyncEngine::new(std::sync::Arc::new(db), config).unwrap();
+
+    let request = mneme::sync::protocol::SyncRequest {
+        project: "test-project".to_string(),
+        have: std::collections::HashMap::new(),
+    };
+
+    let response = engine.build_response(&request).unwrap();
+    assert_eq!(response.project, "test-project");
+    assert!(response.changes.is_empty());
+    assert!(response.tombstones.is_empty());
+}
+
+#[test]
+fn test_ensure_sync_state_creates_entry() {
+    let db = setup_db();
+    let config = mneme::config::settings::SyncConfig {
+        enabled: true,
+        peer_id: Uuid::new_v4().to_string(),
+        peer_name: "test-peer".to_string(),
+        auto_sync_interval: 0,
+        compress: false,
+    };
+    let engine = mneme::sync::engine::SyncEngine::new(std::sync::Arc::new(db), config).unwrap();
+
+    let id = Uuid::new_v4();
+    engine.ensure_sync_state(id, "automerge-doc-123").unwrap();
+    // Calling it again should be idempotent
+    engine.ensure_sync_state(id, "automerge-doc-123").unwrap();
 }

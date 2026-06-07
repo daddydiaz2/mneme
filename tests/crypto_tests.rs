@@ -89,7 +89,10 @@ fn in_memory_store() -> Arc<Mutex<Connection>> {
             context_inject_count INTEGER NOT NULL DEFAULT 0,
             origin_peer TEXT,
             is_encrypted INTEGER NOT NULL DEFAULT 0,
-            encrypted_for TEXT
+            encrypted_for TEXT,
+            valid_from TEXT,
+            valid_until TEXT,
+            provenance TEXT
         );
         CREATE VIRTUAL TABLE memories_fts USING fts5(
             title, content, what, why, context, learned, tags, content='memories'
@@ -139,6 +142,9 @@ fn test_save_encrypted_memory_stores_ciphertext() {
         topic_key: None,
         capture_prompt: None,
         encrypt: true,
+        valid_from: None,
+        valid_until: None,
+        provenance: None,
     };
 
     let memory = store.save(input, None, None).unwrap();

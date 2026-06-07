@@ -3,6 +3,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
+use fuzzy_matcher::FuzzyMatcher;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -22,6 +23,8 @@ pub enum MemoryType {
     Config,
     Discovery,
     Learning,
+    /// Fact generated autonomously by an AI agent (not directly created by user).
+    AgentFact,
 }
 
 impl std::fmt::Display for MemoryType {
@@ -38,6 +41,7 @@ impl std::fmt::Display for MemoryType {
             MemoryType::Config => "config",
             MemoryType::Discovery => "discovery",
             MemoryType::Learning => "learning",
+            MemoryType::AgentFact => "agent_fact",
         };
         write!(f, "{}", s)
     }
@@ -59,6 +63,7 @@ impl std::str::FromStr for MemoryType {
             "config" => Ok(MemoryType::Config),
             "discovery" => Ok(MemoryType::Discovery),
             "learning" => Ok(MemoryType::Learning),
+            "agent_fact" | "agentfact" | "agent-fact" => Ok(MemoryType::AgentFact),
             other => Err(crate::error::MnemeError::InvalidMemoryType(
                 other.to_string(),
             )),
@@ -231,6 +236,12 @@ pub struct Memory {
     pub origin_peer: Option<String>,
     pub is_encrypted: bool,
     pub encrypted_for: Option<String>,
+    /// When this memory's fact became valid (temporal window start).
+    pub valid_from: Option<DateTime<Utc>>,
+    /// When this memory's fact stopped being valid (temporal window end).
+    pub valid_until: Option<DateTime<Utc>>,
+    /// Provenance chain: JSON array of {agent, action, timestamp} describing how this fact was derived.
+    pub provenance: Option<String>,
 }
 
 /// Relación entre dos memorias.
@@ -326,6 +337,12 @@ pub struct CreateMemoryInput {
     pub capture_prompt: Option<bool>,
     #[serde(default)]
     pub encrypt: bool,
+    /// Opcional: when this fact becomes valid (defaults to created_at).
+    pub valid_from: Option<DateTime<Utc>>,
+    /// Opcional: when this fact stops being valid.
+    pub valid_until: Option<DateTime<Utc>>,
+    /// Opcional: provenance chain JSON.
+    pub provenance: Option<String>,
 }
 
 /// Entrada para actualizar una memoria.
@@ -798,8 +815,8 @@ impl MemoryStore {
                 id, project, scope, title, content, what, why, context, learned,
                 memory_type, importance, tags, topic_key, access_count, revision_count,
                 duplicate_count, normalized_hash, created_at, updated_at, last_accessed_at, last_seen_at,
-                is_encrypted, encrypted_for
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+                is_encrypted, encrypted_for, valid_from, valid_until, provenance
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
             params![
                 id.to_string(),
                 &input.project,
@@ -824,6 +841,9 @@ impl MemoryStore {
                 now.to_rfc3339(),
                 is_encrypted,
                 encrypted_for.as_deref(),
+                input.valid_from.map(|d| d.to_rfc3339()),  // valid_from
+                input.valid_until.map(|d| d.to_rfc3339()),  // valid_until
+                input.provenance,  // provenance
             ],
         )?;
         let rowid = conn.last_insert_rowid();
@@ -868,6 +888,31 @@ impl MemoryStore {
             } else {
                 tracing::debug!("no tokio runtime available for auto-index");
             }
+        }
+
+        // Auto-extract entities (non-blocking)
+        if !is_encrypted {
+            let entity_store = crate::store::entities::EntityStore::new(self.conn.clone());
+            if let Ok(Some(saved_memory)) = self.get(id) {
+                if let Err(e) = entity_store.extract_and_save(&saved_memory) {
+                    tracing::warn!(memory_id = %id, error = %e, "entity extraction failed");
+                }
+
+                // Auto-detect conflict candidates
+                if let Ok(candidates) = self.detect_conflict_candidates(&saved_memory) {
+                    if !candidates.is_empty() {
+                        tracing::info!(
+                            memory_id = %id, candidate_count = candidates.len(),
+                            "detected potential conflicts"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Optionally set valid_from (if not provided, defaults to created_at)
+        if input.valid_from.is_some() {
+            // Already handled above via the INSERT
         }
 
         tracing::info!("saved new memory: {}", id);
@@ -1104,7 +1149,7 @@ impl MemoryStore {
              memory_type, importance, tags, topic_key, access_count, revision_count,
              duplicate_count, normalized_hash, created_at, updated_at, last_accessed_at, last_seen_at, deleted_at,
              deprecated_at, deprecated_reason, supersedes_id, context_inject_count, origin_peer,
-             is_encrypted, encrypted_for
+             is_encrypted, encrypted_for, valid_from, valid_until, provenance
              FROM memories WHERE id = ?1 AND deleted_at IS NULL",
         )?;
 
@@ -1211,7 +1256,8 @@ impl MemoryStore {
             "SELECT id, project, scope, title, content, what, why, context, learned,
              memory_type, importance, tags, topic_key, access_count, revision_count,
              duplicate_count, normalized_hash, created_at, updated_at, last_accessed_at, last_seen_at, deleted_at,
-             deprecated_at, deprecated_reason, supersedes_id, context_inject_count, origin_peer
+             deprecated_at, deprecated_reason, supersedes_id, context_inject_count, origin_peer,
+             is_encrypted, encrypted_for, valid_from, valid_until, provenance
              FROM memories WHERE {}
              ORDER BY updated_at DESC LIMIT ? OFFSET ?",
             conditions.join(" AND ")
@@ -1248,7 +1294,8 @@ impl MemoryStore {
             "SELECT id, project, scope, title, content, what, why, context, learned,
              memory_type, importance, tags, topic_key, access_count, revision_count,
              duplicate_count, normalized_hash, created_at, updated_at, last_accessed_at, last_seen_at, deleted_at,
-             deprecated_at, deprecated_reason, supersedes_id, context_inject_count, origin_peer
+             deprecated_at, deprecated_reason, supersedes_id, context_inject_count, origin_peer,
+             is_encrypted, encrypted_for, valid_from, valid_until, provenance
              FROM memories WHERE project = ?1 AND deleted_at IS NULL",
         );
         let mut param_values: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(project.to_string())];
@@ -1463,7 +1510,37 @@ impl MemoryStore {
         engine.search(&conn, query, weights, semantic_scores)
     }
 
-    fn row_to_memory(row: &rusqlite::Row) -> Result<Memory, rusqlite::Error> {
+    /// Search with cross-encoder reranking.
+    /// When embeddings feature is enabled, re-ranks top results using semantic refinement.
+    pub fn search_reranked(
+        &self,
+        query: &SearchQuery,
+        weights: &crate::store::search::SearchWeights,
+        semantic_scores: Option<&HashMap<Uuid, f32>>,
+        engine: &std::sync::Arc<crate::embeddings::engine::EmbeddingEngine>,
+    ) -> crate::error::Result<Vec<SearchResult>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+        let search_engine = crate::store::search::SearchEngine::new();
+        let mut results = search_engine.search(&conn, query, weights, semantic_scores)?;
+
+        // Rerank top results using semantic similarity refinement
+        if !results.is_empty() {
+            crate::embeddings::rerank::rerank_search_results(
+                &query.text,
+                &mut results,
+                Some(engine),
+                weights,
+            );
+        }
+
+        Ok(results)
+    }
+
+    /// Maps a SQL row to a Memory struct. Public for use by MCP tools.
+    pub fn row_to_memory(row: &rusqlite::Row) -> Result<Memory, rusqlite::Error> {
         Ok(Memory {
             id: Uuid::parse_str(&row.get::<_, String>(0)?).map_err(|e| {
                 rusqlite::Error::FromSqlConversionFailure(
@@ -1546,6 +1623,15 @@ impl MemoryStore {
             origin_peer: row.get(26)?,
             is_encrypted: row.get(27).unwrap_or(false),
             encrypted_for: row.get(28).unwrap_or(None),
+            valid_from: row
+                .get::<_, Option<String>>(29)?
+                .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+                .map(|d| d.with_timezone(&Utc)),
+            valid_until: row
+                .get::<_, Option<String>>(30)?
+                .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+                .map(|d| d.with_timezone(&Utc)),
+            provenance: row.get(31)?,
         })
     }
 
@@ -1707,7 +1793,8 @@ impl MemoryStore {
             "SELECT id, project, scope, title, content, what, why, context, learned,
              memory_type, importance, tags, topic_key, access_count, revision_count,
              duplicate_count, normalized_hash, created_at, updated_at, last_accessed_at, last_seen_at, deleted_at,
-             deprecated_at, deprecated_reason, supersedes_id, context_inject_count, origin_peer
+             deprecated_at, deprecated_reason, supersedes_id, context_inject_count, origin_peer,
+             is_encrypted, encrypted_for, valid_from, valid_until, provenance
              FROM memories WHERE project = ?1 AND deleted_at IS NULL
              AND (last_accessed_at IS NULL OR last_accessed_at < ?2)
              ORDER BY updated_at DESC"
@@ -1723,7 +1810,8 @@ impl MemoryStore {
             "SELECT id, project, scope, title, content, what, why, context, learned,
              memory_type, importance, tags, topic_key, access_count, revision_count,
              duplicate_count, normalized_hash, created_at, updated_at, last_accessed_at, last_seen_at, deleted_at,
-             deprecated_at, deprecated_reason, supersedes_id, context_inject_count, origin_peer
+             deprecated_at, deprecated_reason, supersedes_id, context_inject_count, origin_peer,
+             is_encrypted, encrypted_for, valid_from, valid_until, provenance
              FROM memories WHERE project = ?1 AND deleted_at IS NULL
              AND (tags = '[]' OR tags = '')
              ORDER BY updated_at DESC"
@@ -1739,7 +1827,8 @@ impl MemoryStore {
             "SELECT id, project, scope, title, content, what, why, context, learned,
              memory_type, importance, tags, topic_key, access_count, revision_count,
              duplicate_count, normalized_hash, created_at, updated_at, last_accessed_at, last_seen_at, deleted_at,
-             deprecated_at, deprecated_reason, supersedes_id, context_inject_count, origin_peer
+             deprecated_at, deprecated_reason, supersedes_id, context_inject_count, origin_peer,
+             is_encrypted, encrypted_for, valid_from, valid_until, provenance
              FROM memories WHERE project = ?1 AND deleted_at IS NULL
              AND LENGTH(content) < 20
              ORDER BY updated_at DESC"
@@ -2250,7 +2339,8 @@ impl MemoryStore {
             "SELECT id, project, scope, title, content, what, why, context, learned,
              memory_type, importance, tags, topic_key, access_count, revision_count,
              duplicate_count, normalized_hash, created_at, updated_at, last_accessed_at, last_seen_at, deleted_at,
-             deprecated_at, deprecated_reason, supersedes_id, context_inject_count, origin_peer
+             deprecated_at, deprecated_reason, supersedes_id, context_inject_count, origin_peer,
+             is_encrypted, encrypted_for, valid_from, valid_until, provenance
              FROM memories WHERE project = ?1 AND deleted_at IS NULL AND deprecated_at IS NULL"
         );
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(project.to_string())];
@@ -2398,6 +2488,7 @@ impl MemoryStore {
             ("config", 0.05),
             ("discovery", 0.05),
             ("learning", 0.10),
+            ("agent_fact", 0.05),
         ]
         .iter()
         .copied()
@@ -2522,6 +2613,559 @@ impl MemoryStore {
         self.get(memory_id)?
             .ok_or(crate::error::MnemeError::NotFound(memory_id))
     }
+
+    // --- Passive Capture ---
+
+    /// Parsea texto de output de sesión y extrae memorias automáticamente.
+    /// Busca secciones como ## Key Learnings, ## Decisions, ## Architecture, etc.
+    pub fn capture_passive(
+        &self,
+        text: &str,
+        project: &str,
+        session_id: Option<Uuid>,
+        engine: Option<std::sync::Arc<crate::embeddings::engine::EmbeddingEngine>>,
+        embedding_store: Option<crate::embeddings::store::EmbeddingStore>,
+    ) -> crate::error::Result<Vec<Memory>> {
+        let mut saved = Vec::new();
+
+        // Parse sections from markdown-style headings
+        let lines: Vec<&str> = text.lines().collect();
+        let mut i = 0;
+        while i < lines.len() {
+            let line = lines[i].trim();
+
+            // Detect markdown headings with known section markers
+            if let Some(section_type) = Self::detect_section_type(line) {
+                let title = line.trim_start_matches('#').trim().to_string();
+                let mut content_parts: Vec<String> = Vec::new();
+                i += 1;
+
+                // Collect content until next heading or end
+                while i < lines.len() && !lines[i].trim().starts_with('#') && !lines[i].trim().is_empty() {
+                    content_parts.push(lines[i].to_string());
+                    i += 1;
+                }
+
+                if content_parts.is_empty() {
+                    continue;
+                }
+
+                let content = content_parts.join("\n").trim().to_string();
+                if content.len() < 10 {
+                    continue;
+                }
+
+                let (memory_type, importance, what, why, context, learned, topic_key) = Self::section_to_metadata(section_type, &title, &content);
+
+                let input = CreateMemoryInput {
+                    project: project.to_string(),
+                    scope: Some(Scope::Project),
+                    title: title.clone(),
+                    content: content.clone(),
+                    what: what.map(|s| s.to_string()),
+                    why: why.map(|s| s.to_string()),
+                    context: context.map(|s| s.to_string()),
+                    learned: learned.map(|s| s.to_string()),
+                    memory_type,
+                    importance,
+                    tags: Vec::new(),
+                    topic_key,
+                    capture_prompt: session_id.map(|_| true),
+                    encrypt: false,
+                    valid_from: None,
+                    valid_until: None,
+                    provenance: None,
+                };
+
+                match self.save(input, engine.clone(), embedding_store.clone()) {
+                    Ok(memory) => {
+                        if let Some(sid) = session_id {
+                            let session_store = SessionStore::new(self.conn.clone());
+                            let _ = session_store.add_memory(sid, memory.id);
+                        }
+                        saved.push(memory);
+                    }
+                    Err(e) => {
+                        tracing::warn!(section = %title, error = %e, "passive capture save failed");
+                    }
+                }
+            } else {
+                i += 1;
+            }
+        }
+
+        tracing::info!(captured = saved.len(), "passive capture complete");
+        Ok(saved)
+    }
+
+    /// Detecta el tipo de sección basado en el contenido del heading.
+    fn detect_section_type(line: &str) -> Option<&'static str> {
+        let lower = line.to_lowercase();
+        let markers = [
+            ("key learnings", "learning"),
+            ("decisions", "decision"),
+            ("architecture", "architecture"),
+            ("bugfix", "bugfix"),
+            ("bug fix", "bugfix"),
+            ("bugs fixed", "bugfix"),
+            ("patterns", "pattern"),
+            ("conventions", "convention"),
+            ("dependencies", "dependency"),
+            ("discoveries", "discovery"),
+            ("discovery", "discovery"),
+            ("workflow", "workflow"),
+            ("config changes", "config"),
+            ("config", "config"),
+            ("notes", "note"),
+            ("note", "note"),
+            ("summary", "note"),
+        ];
+        for (keyword, section_type) in &markers {
+            if lower.contains(keyword) {
+                return Some(section_type);
+            }
+        }
+        None
+    }
+
+    /// Convierte una sección parseada en metadatos de CreateMemoryInput.
+    fn section_to_metadata(
+        section_type: &str,
+        title: &str,
+        content: &str,
+    ) -> (MemoryType, Importance, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>) {
+        let memory_type = MemoryType::from_str(section_type).unwrap_or(MemoryType::Note);
+        let importance = match section_type {
+            "architecture" | "decision" => Importance::High,
+            "bugfix" => Importance::Medium,
+            "config" => Importance::Low,
+            _ => Importance::Medium,
+        };
+
+        // Extract structured fields from content
+        let (what, why, context, learned) = Self::extract_structured_fields(content);
+
+        let topic_key = if !section_type.is_empty() && !title.is_empty() {
+            let slug = title
+                .to_lowercase()
+                .replace(|c: char| !c.is_alphanumeric() && c != ' ', "")
+                .split_whitespace()
+                .take(3)
+                .collect::<Vec<_>>()
+                .join("-");
+            Some(format!("{}/{}", section_type, slug))
+        } else {
+            None
+        };
+
+        (memory_type, importance, what, why, context, learned, topic_key)
+    }
+
+    /// Extrae campos What/Why/Context/Learned de contenido estructurado.
+    fn extract_structured_fields(content: &str) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
+        let mut what = None;
+        let mut why = None;
+        let mut context = None;
+        let mut learned = None;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(val) = trimmed.strip_prefix("**What:**").or_else(|| trimmed.strip_prefix("**What:** ")) {
+                what = Some(val.trim().to_string());
+            } else if let Some(val) = trimmed.strip_prefix("**Why:**").or_else(|| trimmed.strip_prefix("**Why:** ")) {
+                why = Some(val.trim().to_string());
+            } else if let Some(val) = trimmed.strip_prefix("**Context:**").or_else(|| trimmed.strip_prefix("**Context:** ")) {
+                context = Some(val.trim().to_string());
+            } else if let Some(val) = trimmed.strip_prefix("**Learned:**").or_else(|| trimmed.strip_prefix("**Learned:** ")) {
+                learned = Some(val.trim().to_string());
+            }
+        }
+
+        (what, why, context, learned)
+    }
+
+    // --- Conflict Detection ---
+
+    /// Detecta candidatos de conflicto para una memoria recién guardada.
+    /// Busca por: topic_key compartido, título similar, y mismo project+type.
+    pub fn detect_conflict_candidates(&self, memory: &Memory) -> crate::error::Result<Vec<ConflictCandidate>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+        let mut candidates = Vec::new();
+        let matcher = fuzzy_matcher::skim::SkimMatcherV2::default();
+
+        // 1. Check topic_key overlap
+        if let Some(ref topic_key) = memory.topic_key {
+            let mut stmt = conn.prepare(
+                "SELECT id, title, memory_type FROM memories
+                 WHERE project = ?1 AND topic_key = ?2 AND id != ?3
+                 AND deleted_at IS NULL AND deprecated_at IS NULL
+                 LIMIT 5"
+            )?;
+            let rows = stmt.query_map(params![memory.project, topic_key, memory.id.to_string()], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?;
+            for row in rows {
+                let (id_str, _title, _type) = row?;
+                if let Ok(target_id) = Uuid::parse_str(&id_str) {
+                    candidates.push(ConflictCandidate {
+                        id: 0,
+                        source_id: memory.id,
+                        target_id,
+                        reason: format!("Same topic_key: '{}'", topic_key),
+                        match_score: 0.7,
+                        candidate_type: "topic_key".to_string(),
+                        judgment_status: "pending".to_string(),
+                        judged_relation: None,
+                        judged_reason: None,
+                        created_at: Utc::now(),
+                    });
+                }
+            }
+        }
+
+        // 2. Check title similarity (fuzzy match >= 80)
+        {
+            let mut stmt = conn.prepare(
+                "SELECT id, title FROM memories
+                 WHERE project = ?1 AND id != ?2
+                 AND deleted_at IS NULL AND deprecated_at IS NULL
+                 LIMIT 50"
+            )?;
+            let rows = stmt.query_map(params![memory.project, memory.id.to_string()], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for row in rows {
+                let (id_str, title) = row?;
+                if let (Ok(target_id), Some(score)) = (Uuid::parse_str(&id_str), matcher.fuzzy_match(&title, &memory.title)) {
+                    let normalized = (score as f32).abs() / 100.0;
+                    if normalized >= 0.80 {
+                        candidates.push(ConflictCandidate {
+                            id: 0,
+                            source_id: memory.id,
+                            target_id,
+                            reason: format!("Similar title: '{}' vs '{}' (score: {:.2})", memory.title, title, normalized),
+                            match_score: normalized,
+                            candidate_type: "title".to_string(),
+                            judgment_status: "pending".to_string(),
+                            judged_relation: None,
+                            judged_reason: None,
+                            created_at: Utc::now(),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Deduplicate by (source_id, target_id, candidate_type)
+        let mut seen = std::collections::HashSet::new();
+        candidates.retain(|c| seen.insert((c.source_id, c.target_id, c.candidate_type.clone())));
+
+        // Save to DB
+        for c in &candidates {
+            conn.execute(
+                "INSERT OR IGNORE INTO relation_candidates
+                 (source_id, target_id, reason, match_score, candidate_type, judgment_status, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6)",
+                params![
+                    c.source_id.to_string(),
+                    c.target_id.to_string(),
+                    c.reason,
+                    c.match_score,
+                    c.candidate_type,
+                    Utc::now().to_rfc3339(),
+                ],
+            )?;
+        }
+
+        Ok(candidates)
+    }
+
+    /// Lista candidatos de conflicto pendientes.
+    pub fn list_conflict_candidates(
+        &self,
+        project: &str,
+        status: Option<&str>,
+        limit: u32,
+    ) -> crate::error::Result<Vec<ConflictCandidate>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+
+        let status_filter = status.unwrap_or("pending");
+        let limit_i64 = limit as i64;
+
+        let mut stmt = conn.prepare(
+            "SELECT c.id, c.source_id, c.target_id, c.reason, c.match_score, c.candidate_type,
+                    c.judgment_status, c.judged_relation, c.judged_reason, c.created_at
+             FROM relation_candidates c
+             JOIN memories m1 ON m1.id = c.source_id
+             JOIN memories m2 ON m2.id = c.target_id
+             WHERE c.judgment_status = ?1 AND m1.project = ?2 AND m1.deleted_at IS NULL AND m2.deleted_at IS NULL
+             ORDER BY c.match_score DESC
+             LIMIT ?3"
+        )?;
+
+        let rows = stmt.query_map(params![status_filter, project, limit_i64], |row| {
+            Ok(ConflictCandidate {
+                id: row.get(0)?,
+                source_id: Uuid::parse_str(&row.get::<_, String>(1)?).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e))
+                })?,
+                target_id: Uuid::parse_str(&row.get::<_, String>(2)?).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
+                })?,
+                reason: row.get(3)?,
+                match_score: row.get(4)?,
+                candidate_type: row.get(5)?,
+                judgment_status: row.get(6)?,
+                judged_relation: row.get(7)?,
+                judged_reason: row.get(8)?,
+                created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(9)?)
+                    .map_err(|e| {
+                        rusqlite::Error::FromSqlConversionFailure(9, rusqlite::types::Type::Text, Box::new(e))
+                    })?
+                    .with_timezone(&Utc),
+            })
+        })?;
+
+        let mut candidates = Vec::new();
+        for row in rows {
+            candidates.push(row?);
+        }
+        Ok(candidates)
+    }
+
+    /// Registra el juicio de un LLM/agente sobre un candidato.
+    /// Si el juicio es conflicts_with/supersedes, actualiza la relación automáticamente.
+    pub fn judge_conflict(
+        &self,
+        candidate_id: i64,
+        judged_relation: &str,
+        reasoning: &str,
+        judged_by: &str,
+    ) -> crate::error::Result<ConflictJudgment> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+
+        // Get candidate details
+        let (source_id_str, target_id_str): (String, String) = conn.query_row(
+            "SELECT source_id, target_id FROM relation_candidates WHERE id = ?1",
+            params![candidate_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        let source_id = Uuid::parse_str(&source_id_str)
+            .map_err(|e| crate::error::MnemeError::Config(e.to_string()))?;
+        let target_id = Uuid::parse_str(&target_id_str)
+            .map_err(|e| crate::error::MnemeError::Config(e.to_string()))?;
+        let now = Utc::now().to_rfc3339();
+
+        // Update candidate status
+        conn.execute(
+            "UPDATE relation_candidates SET judgment_status = 'judged', judged_relation = ?1, judged_reason = ?2, judged_at = ?3
+             WHERE id = ?4",
+            params![judged_relation, reasoning, now, candidate_id],
+        )?;
+
+        // Record the judgment
+        conn.execute(
+            "INSERT INTO conflict_judgments (candidate_id, memory_id_a, memory_id_b, proposed_relation, confidence, reasoning, judged_by, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                candidate_id,
+                source_id_str,
+                target_id_str,
+                judged_relation,
+                1.0,
+                reasoning,
+                judged_by,
+                now,
+            ],
+        )?;
+        let judgment_id = conn.last_insert_rowid();
+
+        // If relation is conflicts_with, supersedes, or extends — create the actual relation
+        if judged_relation == "conflicts_with" || judged_relation == "supersedes" || judged_relation == "extends" {
+            let relation_type = match judged_relation {
+                "conflicts_with" => RelationType::ConflictsWith,
+                "supersedes" => RelationType::Supersedes,
+                "extends" => RelationType::Extends,
+                _ => RelationType::ConflictsWith,
+            };
+
+            // Check if relation already exists
+            let existing: u32 = conn.query_row(
+                "SELECT COUNT(*) FROM memory_relations WHERE source_id = ?1 AND target_id = ?2",
+                params![source_id_str, target_id_str],
+                |row| row.get(0),
+            ).unwrap_or(0);
+
+            if existing == 0 {
+                let rel_id = Uuid::new_v4();
+                conn.execute(
+                    "INSERT INTO memory_relations (id, sync_id, source_id, target_id, relation_type, confidence, judgment_status, reason, evidence, marked_by_actor, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?8, ?9, ?10, ?11)",
+                    params![
+                        rel_id.to_string(),
+                        rel_id.to_string(),
+                        source_id_str,
+                        target_id_str,
+                        relation_type.to_string(),
+                        1.0f32,
+                        reasoning,
+                        serde_json::to_string(&vec![reasoning])?,
+                        judged_by,
+                        now,
+                        now,
+                    ],
+                )?;
+            }
+
+            // If supersedes, mark old memory as deprecated
+            if judged_relation == "supersedes" {
+                conn.execute(
+                    "UPDATE memories SET deprecated_at = ?1, deprecated_reason = ?2, supersedes_id = ?3, updated_at = ?4
+                     WHERE id = ?5 AND deleted_at IS NULL AND deprecated_at IS NULL",
+                    params![now, reasoning, source_id_str, now, target_id_str],
+                )?;
+            }
+        }
+
+        Ok(ConflictJudgment {
+            id: judgment_id,
+            candidate_id,
+            memory_id_a: source_id,
+            memory_id_b: target_id,
+            proposed_relation: judged_relation.to_string(),
+            confidence: 1.0,
+            reasoning: Some(reasoning.to_string()),
+            evidence: None,
+            judged_by: judged_by.to_string(),
+            created_at: Utc::now(),
+        })
+    }
+
+    /// Obtiene contexto formateado para que un LLM juzgue un par de memorias.
+    /// Obtiene las relaciones existentes entre dos memorias.
+    pub fn get_existing_relations(&self, memory_id_a: Uuid, memory_id_b: Uuid) -> crate::error::Result<Vec<MemoryRelation>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, sync_id, source_id, target_id, relation_type, confidence, judgment_status,
+                    reason, evidence, marked_by_actor, created_at, updated_at
+             FROM memory_relations
+             WHERE (source_id = ?1 AND target_id = ?2) OR (source_id = ?2 AND target_id = ?1)
+             LIMIT 10"
+        )?;
+        let rows = stmt.query_map(params![memory_id_a.to_string(), memory_id_b.to_string()], |row| {
+            Ok(MemoryRelation {
+                id: Uuid::parse_str(&row.get::<_, String>(0)?).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
+                })?,
+                sync_id: row.get(1)?,
+                source_id: Uuid::parse_str(&row.get::<_, String>(2)?).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
+                })?,
+                target_id: Uuid::parse_str(&row.get::<_, String>(3)?).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e))
+                })?,
+                relation_type: std::str::FromStr::from_str(&row.get::<_, String>(4)?).map_err(|e: crate::error::MnemeError| {
+                    rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(e))
+                })?,
+                confidence: row.get(5)?,
+                judgment_status: row.get(6)?,
+                reason: row.get(7)?,
+                evidence: row.get(8)?,
+                marked_by_actor: row.get(9)?,
+                created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(10)?)
+                    .map_err(|e| {
+                        rusqlite::Error::FromSqlConversionFailure(10, rusqlite::types::Type::Text, Box::new(e))
+                    })?
+                    .with_timezone(&Utc),
+                updated_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(11)?)
+                    .map_err(|e| {
+                        rusqlite::Error::FromSqlConversionFailure(11, rusqlite::types::Type::Text, Box::new(e))
+                    })?
+                    .with_timezone(&Utc),
+            })
+        })?;
+        let mut relations = Vec::new();
+        for row in rows {
+            relations.push(row?);
+        }
+        Ok(relations)
+    }
+
+    pub fn get_conflict_context(&self, source_id: Uuid, target_id: Uuid) -> crate::error::Result<String> {
+        let source = self.get(source_id)?.ok_or_else(|| crate::error::MnemeError::NotFound(source_id))?;
+        let target = self.get(target_id)?.ok_or_else(|| crate::error::MnemeError::NotFound(target_id))?;
+
+        Ok(format!(
+            r#"## Memoria A (existente)
+- **ID:** {}
+- **Título:** {}
+- **Tipo:** {}
+- **Importancia:** {}
+- **Contenido:** {}
+
+## Memoria B (nueva)
+- **ID:** {}
+- **Título:** {}
+- **Tipo:** {}
+- **Importancia:** {}
+- **Contenido:** {}
+
+## Tarea
+Analiza si la Memoria B **conflicta**, **extiende**, **reemplaza (supersedes)** o es **compatible** con la Memoria A.
+Responde con una de estas relaciones: `compatible`, `conflicts_with`, `supersedes`, `extends`, `depends_on`
+Provee una razón breve.
+"#,
+            source.id, source.title, source.memory_type, source.importance, &source.content[..source.content.len().min(300)],
+            target.id, target.title, target.memory_type, target.importance, &target.content[..target.content.len().min(300)],
+        ))
+    }
+}
+
+/// Candidato de conflicto detectado automáticamente.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConflictCandidate {
+    pub id: i64,
+    pub source_id: Uuid,
+    pub target_id: Uuid,
+    pub reason: String,
+    pub match_score: f32,
+    pub candidate_type: String,
+    pub judgment_status: String,
+    pub judged_relation: Option<String>,
+    pub judged_reason: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Juicio de conflicto realizado por el LLM.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConflictJudgment {
+    pub id: i64,
+    pub candidate_id: i64,
+    pub memory_id_a: Uuid,
+    pub memory_id_b: Uuid,
+    pub proposed_relation: String,
+    pub confidence: f32,
+    pub reasoning: Option<String>,
+    pub evidence: Option<String>,
+    pub judged_by: String,
+    pub created_at: DateTime<Utc>,
 }
 
 /// Store para operaciones de sesión.

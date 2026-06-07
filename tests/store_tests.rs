@@ -29,6 +29,9 @@ fn test_save_and_get_memory() {
         tags: vec!["test".to_string()],
         topic_key: None,
         capture_prompt: None,
+        valid_from: None,
+        valid_until: None,
+        provenance: None,
     };
 
     let memory = store.save(input, None, None).unwrap();
@@ -37,7 +40,7 @@ fn test_save_and_get_memory() {
 
     let retrieved = store.get(memory.id).unwrap().unwrap();
     assert_eq!(retrieved.id, memory.id);
-    assert_eq!(retrieved.access_count, 2); // save() calls get() internally + 1 explicit get
+    assert_eq!(retrieved.access_count, 3); // save() calls get() for entity extraction + final return + 1 explicit get
 }
 
 #[test]
@@ -60,6 +63,9 @@ fn test_soft_delete() {
         tags: vec![],
         topic_key: None,
         capture_prompt: None,
+        valid_from: None,
+        valid_until: None,
+        provenance: None,
     };
 
     let memory = store.save(input, None, None).unwrap();
@@ -88,6 +94,9 @@ fn test_dedupe_detection() {
         tags: vec![],
         topic_key: None,
         capture_prompt: None,
+        valid_from: None,
+        valid_until: None,
+        provenance: None,
     };
 
     let first = store.save(input.clone(), None, None).unwrap();
@@ -117,6 +126,9 @@ fn test_topic_key_upsert() {
         tags: vec![],
         topic_key: Some("architecture/auth".to_string()),
         capture_prompt: None,
+        valid_from: None,
+        valid_until: None,
+        provenance: None,
     };
 
     let input2 = CreateMemoryInput {
@@ -134,6 +146,9 @@ fn test_topic_key_upsert() {
         tags: vec![],
         topic_key: Some("architecture/auth".to_string()),
         capture_prompt: None,
+        valid_from: None,
+        valid_until: None,
+        provenance: None,
     };
 
     let first = store.save(input1, None, None).unwrap();
@@ -166,6 +181,9 @@ fn test_search_fts5() {
                 tags: vec!["rust".to_string()],
                 topic_key: None,
                 capture_prompt: None,
+                valid_from: None,
+                valid_until: None,
+                provenance: None,
             },
             None,
             None,
@@ -227,6 +245,9 @@ fn test_stats() {
                 tags: vec![],
                 topic_key: None,
                 capture_prompt: None,
+                valid_from: None,
+                valid_until: None,
+                provenance: None,
             },
             None,
             None,

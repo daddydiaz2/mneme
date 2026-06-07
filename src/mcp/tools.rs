@@ -163,6 +163,25 @@ pub async fn execute_tool(
         "mem_decrypt" => mem_decrypt(db, args, project),
         "keys_list" => keys_list(db, args, project),
         "keys_status" => keys_status(db, args, project),
+        "mem_entity_extract" => mem_entity_extract(db, args, project),
+        "mem_entity_search" => mem_entity_search(db, args, project),
+        "mem_entity_links" => mem_entity_links(db, args, project),
+        "mem_cloud_enroll" => mem_cloud_enroll(db, args, project),
+        "mem_cloud_sync" => mem_cloud_sync(db, args, project),
+        "mem_cloud_status" => mem_cloud_status(db, args, project),
+        "mem_obsidian_export" => mem_obsidian_export(db, args, project),
+        "mem_watch_scan" => mem_watch_scan(db, args, project),
+        "mem_compress" => mem_compress(db, args, project),
+        "mem_compress_batch" => mem_compress_batch(db, args, project),
+        "mem_compress_context" => mem_compress_context(db, args, project),
+        "mem_temporal_query" => mem_temporal_query(db, args, project),
+        "mem_expand" => mem_expand(db, args, project),
+        "mem_transcript" => mem_transcript(db, args, project),
+        "mem_capture_passive" => mem_capture_passive(db, args, project),
+        "mem_entity_frequent" => mem_entity_frequent(db, args, project),
+        "mem_judge" => mem_judge(db, args, project),
+        "mem_compare" => mem_compare(db, args, project),
+        "mem_conflict_candidates" => mem_conflict_candidates(db, args, project),
         _ => Err(crate::error::MnemeError::Mcp(format!(
             "Unknown tool: {}",
             name
@@ -198,6 +217,15 @@ struct MemSaveParams {
     scope: Option<String>,
     #[serde(default)]
     topic_key: Option<String>,
+    /// RFC3339 timestamp: when this memory's fact became valid.
+    #[serde(default)]
+    valid_from: Option<String>,
+    /// RFC3339 timestamp: when this memory's fact stopped being valid.
+    #[serde(default)]
+    valid_until: Option<String>,
+    /// Provenance JSON: array of {agent, action, timestamp}.
+    #[serde(default)]
+    provenance: Option<String>,
 }
 
 fn default_note() -> String {
@@ -592,6 +620,13 @@ fn mem_save(
         topic_key: params.topic_key,
         capture_prompt: None,
         encrypt: false,
+        valid_from: params.valid_from.as_deref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|d| d.with_timezone(&chrono::Utc)),
+        valid_until: params.valid_until.as_deref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|d| d.with_timezone(&chrono::Utc)),
+        provenance: params.provenance,
     };
 
     let engine = embeddings.map(std::sync::Arc::clone);
@@ -1083,6 +1118,9 @@ fn mem_save_batch(
             topic_key: item.topic_key,
             capture_prompt: None,
             encrypt: false,
+            valid_from: None,
+            valid_until: None,
+            provenance: None,
         });
     }
 
@@ -1439,6 +1477,856 @@ fn keys_status(
     }))
 }
 
+// --- Entity Extraction & Linking Tools ---
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemEntityExtractParams {
+    /// Memory ID to extract entities from, or text content
+    id: Option<String>,
+    /// Text content to extract entities from (alternative to id)
+    text: Option<String>,
+    #[serde(default)]
+    project: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemEntitySearchParams {
+    query: String,
+    #[serde(default)]
+    entity_type: Option<String>,
+    #[serde(default = "default_limit_10")]
+    limit: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemEntityLinksParams {
+    /// Memory ID to get linked memories for
+    id: String,
+    #[serde(default = "default_limit_10")]
+    limit: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemEntityFrequentParams {
+    #[serde(default)]
+    project: Option<String>,
+    #[serde(default = "default_limit_20")]
+    limit: u32,
+}
+
+fn mem_entity_extract(
+    db: &Database,
+    args: JsonObject,
+    _project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemEntityExtractParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+
+    let entity_store = db.entities();
+
+    // If memory ID is provided, extract entities from existing memory
+    if let Some(id_str) = &params.id {
+        let id = Uuid::parse_str(id_str)
+            .map_err(|e| crate::error::MnemeError::Config(e.to_string()))?;
+        let memory = db
+            .memories()
+            .get(id)?
+            .ok_or_else(|| crate::error::MnemeError::NotFound(id))?;
+        
+        if memory.is_encrypted {
+            return Err(crate::error::MnemeError::Config(
+                "Cannot extract entities from encrypted memory".into(),
+            ));
+        }
+
+        let entities = entity_store.extract_and_save(&memory)?;
+        return Ok(serde_json::to_value(entities)?);
+    }
+
+    // If raw text is provided, just extract without saving
+    if let Some(text) = &params.text {
+        let raw = crate::store::entities::EntityStore::extract_entities_from_text(text);
+        return Ok(json!(raw));
+    }
+
+    Err(crate::error::MnemeError::Config(
+        "Provide either 'id' (memory UUID) or 'text' (raw content)".into(),
+    ))
+}
+
+fn mem_entity_search(
+    db: &Database,
+    args: JsonObject,
+    _project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemEntitySearchParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+
+    let entity_type = params
+        .entity_type
+        .as_deref()
+        .map(std::str::FromStr::from_str)
+        .transpose()?;
+
+    let entity_store = db.entities();
+    let results = entity_store.search_entities(&params.query, entity_type.as_ref(), params.limit)?;
+    Ok(serde_json::to_value(results)?)
+}
+
+fn mem_entity_links(
+    db: &Database,
+    args: JsonObject,
+    _project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemEntityLinksParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+
+    let id = Uuid::parse_str(&params.id)
+        .map_err(|e| crate::error::MnemeError::Config(e.to_string()))?;
+
+    let entity_store = db.entities();
+    let entities = entity_store.get_memory_entities(id)?;
+    let links = entity_store.get_memory_links(id, params.limit)?;
+
+    Ok(json!({
+        "memory_id": params.id,
+        "entities": entities,
+        "links": links.iter().map(|(link, title)| {
+            json!({
+                "entity_name": link.entity_name,
+                "entity_type": link.entity_type.to_string(),
+                "target_memory_id": link.target_memory_id.to_string(),
+                "target_title": title,
+                "link_strength": link.link_strength,
+            })
+        }).collect::<Vec<_>>()
+    }))
+}
+
+// --- Cloud Sync Tools ---
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemCloudEnrollParams {
+    /// Cloud server URL (e.g., https://cloud.mneme.dev)
+    server: String,
+    /// Authentication token
+    token: String,
+    #[serde(default)]
+    project: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemCloudSyncParams {
+    #[serde(default)]
+    project: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemCloudStatusParams {
+    #[serde(default)]
+    project: Option<String>,
+}
+
+fn mem_cloud_enroll(
+    db: &Database,
+    args: JsonObject,
+    project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemCloudEnrollParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+    let project = params.project.unwrap_or_else(|| project.to_string());
+    let settings = crate::config::settings::Settings::load()?;
+
+    let orch = crate::cloud::CloudOrchestrator::new(
+        // We need an Arc<Database>, but we have &Database
+        // Create an Arc clone
+        std::sync::Arc::new(db.clone()),
+        settings.sync,
+    );
+
+    let rt = tokio::runtime::Runtime::new()?;
+    let result = rt.block_on(async {
+        orch.enroll(&params.server, &params.token, &project).await
+    })?;
+
+    Ok(serde_json::to_value(result)?)
+}
+
+fn mem_cloud_sync(
+    db: &Database,
+    args: JsonObject,
+    project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemCloudSyncParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+    let project = params.project.unwrap_or_else(|| project.to_string());
+    let settings = crate::config::settings::Settings::load()?;
+
+    let orch = crate::cloud::CloudOrchestrator::new(
+        std::sync::Arc::new(db.clone()),
+        settings.sync,
+    );
+
+    let rt = tokio::runtime::Runtime::new()?;
+    let result = rt.block_on(async {
+        orch.sync_cloud(&project).await
+    })?;
+
+    Ok(serde_json::to_value(result)?)
+}
+
+fn mem_cloud_status(
+    db: &Database,
+    args: JsonObject,
+    project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemCloudStatusParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+    let project = params.project.unwrap_or_else(|| project.to_string());
+    let settings = crate::config::settings::Settings::load()?;
+
+    let orch = crate::cloud::CloudOrchestrator::new(
+        std::sync::Arc::new(db.clone()),
+        settings.sync,
+    );
+
+    orch.cloud_status(&project)
+}
+
+// --- Obsidian Export Tools ---
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemObsidianExportParams {
+    #[serde(default)]
+    project: Option<String>,
+    /// Output directory for the Obsidian vault
+    output: String,
+}
+
+fn mem_obsidian_export(
+    db: &Database,
+    args: JsonObject,
+    project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemObsidianExportParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+
+    let project = params.project.unwrap_or_else(|| project.to_string());
+    let output_dir = std::path::PathBuf::from(&params.output);
+
+    let memories = db.memories().list(&project, None, None, None, 10000, 0)?;
+    let graph = db.memories().get_graph(&project)?;
+
+    // Convert graph edges to MemoryRelations for the export
+    let relations: Vec<crate::store::memory::MemoryRelation> = graph
+        .edges
+        .into_iter()
+        .filter_map(|e| {
+            let source_id = uuid::Uuid::parse_str(&e.source).ok()?;
+            let target_id = uuid::Uuid::parse_str(&e.target).ok()?;
+            Some(crate::store::memory::MemoryRelation {
+                id: uuid::Uuid::nil(),
+                sync_id: String::new(),
+                source_id,
+                target_id,
+                relation_type: std::str::FromStr::from_str(&e.relation_type).ok()?,
+                confidence: e.confidence,
+                judgment_status: "active".to_string(),
+                reason: None,
+                evidence: None,
+                marked_by_actor: "system".to_string(),
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+            })
+        })
+        .collect();
+
+    let stats = crate::export::obsidian::export_to_obsidian(
+        &memories,
+        &relations,
+        &project,
+        &output_dir,
+    )?;
+
+    Ok(json!({
+        "project": project,
+        "output": output_dir.join("mneme-export").to_string_lossy().to_string(),
+        "files_written": stats.files_written,
+        "bytes_written": stats.bytes_written,
+        "memories_exported": memories.len()
+    }))
+}
+
+// --- File Watcher Tools ---
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemWatchScanParams {
+    /// Directory to scan for files
+    directory: String,
+    /// File extension to watch (default: .md)
+    #[serde(default = "default_md_ext")]
+    ext: String,
+    #[serde(default)]
+    project: Option<String>,
+}
+
+fn default_md_ext() -> String {
+    ".md".to_string()
+}
+
+fn mem_watch_scan(
+    db: &Database,
+    args: JsonObject,
+    project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemWatchScanParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+
+    let project = params.project.unwrap_or_else(|| project.to_string());
+    let dir = std::path::PathBuf::from(&params.directory);
+    let store = db.memories();
+
+    let mut watcher = crate::watch::DirectoryWatcher::new(
+        dir,
+        params.ext,
+        3600, // interval doesn't matter for one-shot
+        store,
+        project,
+    );
+
+    let rt = tokio::runtime::Runtime::new()?;
+    let result = rt.block_on(async { watcher.scan().await })?;
+
+    Ok(json!({
+        "indexed": result.indexed,
+        "skipped": result.skipped,
+        "errors": result.errors,
+        "removed": result.removed,
+        "tracked_files": watcher.tracked_count()
+    }))
+}
+
+// --- Context Compression Tools ---
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemCompressParams {
+    /// Memory ID to compress
+    id: String,
+    /// Compression strategy: truncate, smart_summary, keywords_only, minimal
+    #[serde(default = "default_smart_summary")]
+    strategy: String,
+}
+
+fn default_smart_summary() -> String {
+    "smart_summary".to_string()
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemCompressBatchParams {
+    /// Project to compress memories for
+    #[serde(default)]
+    project: Option<String>,
+    /// Compression strategy
+    #[serde(default = "default_smart_summary")]
+    strategy: String,
+    #[serde(default = "default_limit_10")]
+    limit: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemCompressContextParams {
+    #[serde(default)]
+    project: Option<String>,
+    /// Compression strategy
+    #[serde(default = "default_smart_summary")]
+    strategy: String,
+    #[serde(default = "default_limit_10")]
+    limit: u32,
+}
+
+fn mem_compress(
+    db: &Database,
+    args: JsonObject,
+    _project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemCompressParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+
+    let id = Uuid::parse_str(&params.id)
+        .map_err(|e| crate::error::MnemeError::Config(e.to_string()))?;
+    let memory = db.memories().get(id)?
+        .ok_or_else(|| crate::error::MnemeError::NotFound(id))?;
+
+    let strategy: crate::compress::CompressionStrategy = params.strategy.parse()?;
+    let compressed = crate::compress::CompressionPipeline::compress(&memory, strategy);
+
+    Ok(serde_json::to_value(compressed)?)
+}
+
+fn mem_compress_batch(
+    db: &Database,
+    args: JsonObject,
+    project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemCompressBatchParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+
+    let project = params.project.unwrap_or_else(|| project.to_string());
+    let strategy: crate::compress::CompressionStrategy = params.strategy.parse()?;
+
+    let memories = db.memories().list(&project, None, None, None, params.limit, 0)?;
+    let mut compressed = Vec::new();
+    let mut total_ratio = 0.0;
+
+    for memory in &memories {
+        let result = crate::compress::CompressionPipeline::compress(memory, strategy);
+        total_ratio += result.compression_ratio;
+        compressed.push(result);
+    }
+
+    let avg_ratio = if !compressed.is_empty() {
+        total_ratio / compressed.len() as f64
+    } else {
+        0.0
+    };
+
+    Ok(json!({
+        "compressed": compressed,
+        "count": compressed.len(),
+        "average_compression_ratio": avg_ratio,
+        "strategy": params.strategy,
+        "project": project
+    }))
+}
+
+fn mem_compress_context(
+    db: &Database,
+    args: JsonObject,
+    project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemCompressContextParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+
+    let project = params.project.unwrap_or_else(|| project.to_string());
+    let strategy: crate::compress::CompressionStrategy = params.strategy.parse()?;
+
+    let memories = db.memories().context(&project, None, params.limit)?;
+    let context_block = crate::compress::CompressionPipeline::compress_context_block(&memories, strategy, params.limit as usize);
+
+    Ok(json!({
+        "compressed_context": context_block,
+        "memory_count": memories.len(),
+        "strategy": params.strategy,
+        "project": project
+    }))
+}
+
+// --- Temporal Query Tools ---
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemTemporalQueryParams {
+    /// Query text to search
+    query: String,
+    /// RFC3339 timestamp: find facts that were valid at this time
+    at_time: String,
+    #[serde(default)]
+    project: Option<String>,
+    #[serde(default = "default_limit_10")]
+    limit: u32,
+}
+
+fn mem_temporal_query(
+    db: &Database,
+    args: JsonObject,
+    project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemTemporalQueryParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+
+    let at_time = chrono::DateTime::parse_from_rfc3339(&params.at_time)
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid at_time: {}", e)))?
+        .with_timezone(&chrono::Utc);
+    let at_time_str = at_time.to_rfc3339();
+    let project = params.project.unwrap_or_else(|| project.to_string());
+
+    let conn = db.get_conn();
+    let like_pattern = format!("%{}%", params.query);
+    let limit_i64 = params.limit as i64;
+
+    let results: Vec<serde_json::Value>;
+    {
+        let conn_guard = conn.lock().map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+        let mut stmt = conn_guard.prepare(
+            "SELECT id, project, scope, title, content, what, why, context, learned,
+             memory_type, importance, tags, topic_key, access_count, revision_count,
+             duplicate_count, normalized_hash, created_at, updated_at, last_accessed_at, last_seen_at, deleted_at,
+             deprecated_at, deprecated_reason, supersedes_id, context_inject_count, origin_peer,
+             is_encrypted, encrypted_for, valid_from, valid_until, provenance
+             FROM memories
+             WHERE project = ?1 AND deleted_at IS NULL
+             AND (title LIKE ?2 OR content LIKE ?2)
+             AND (valid_from IS NULL OR valid_from <= ?3)
+             AND (valid_until IS NULL OR valid_until > ?3)
+             ORDER BY updated_at DESC
+             LIMIT ?4"
+        )?;
+        let rows = stmt.query_map(
+            rusqlite::params![project, like_pattern, at_time_str, limit_i64],
+            crate::store::memory::MemoryStore::row_to_memory,
+        )?;
+        results = rows
+            .filter_map(|r| r.ok())
+            .map(|m| serde_json::to_value(m).unwrap_or_default())
+            .collect();
+    }
+
+    Ok(json!({
+        "results": results,
+        "count": results.len(),
+        "query": params.query,
+        "at_time": params.at_time,
+        "project": project,
+        "description": "Facts that were valid at the specified time"
+    }))
+}
+
+// --- Progressive Retrieval Tools ---
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemExpandParams {
+    /// Memory ID to expand (returns full content)
+    id: String,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemTranscriptParams {
+    /// Session ID to retrieve raw transcript for
+    session_id: String,
+    #[serde(default = "default_limit_50")]
+    limit: u32,
+}
+
+fn default_limit_50() -> u32 { 50 }
+
+fn mem_expand(
+    db: &Database,
+    args: JsonObject,
+    _project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemExpandParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+
+    let id = Uuid::parse_str(&params.id)
+        .map_err(|e| crate::error::MnemeError::Config(e.to_string()))?;
+
+    let memory = db.memories().get(id)?
+        .ok_or_else(|| crate::error::MnemeError::NotFound(id))?;
+
+    // Return the full expanded view: all structured fields + entities + relations
+    let entity_store = db.entities();
+    let entities = entity_store.get_memory_entities(id).ok();
+    let links = entity_store.get_memory_links(id, 10).ok();
+
+    Ok(json!({
+        "memory": memory,
+        "entities": entities,
+        "entity_links": links.map(|l| l.iter().map(|(link, title)| {
+            json!({
+                "entity_name": link.entity_name,
+                "target_title": title,
+                "link_strength": link.link_strength
+            })
+        }).collect::<Vec<_>>()),
+        "layer": 2,
+        "instruction": "This is the expanded view (Layer 2). Use this content for detailed context."
+    }))
+}
+
+fn mem_transcript(
+    db: &Database,
+    args: JsonObject,
+    _project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemTranscriptParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+
+    let session_id = Uuid::parse_str(&params.session_id)
+        .map_err(|e| crate::error::MnemeError::Config(e.to_string()))?;
+
+    let session = db.sessions().get(session_id)?
+        .ok_or_else(|| crate::error::MnemeError::NotFound(session_id))?;
+
+    // Get prompts for this session
+    let conn = db.get_conn();
+    let prompts: Vec<crate::store::memory::UserPrompt>;
+    {
+        let conn_guard = conn.lock().map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+        let mut stmt = conn_guard.prepare(
+            "SELECT id, session_id, content, project, created_at
+             FROM user_prompts WHERE session_id = ?1
+             ORDER BY created_at ASC
+             LIMIT ?2"
+        )?;
+        let limit_i64 = params.limit as i64;
+        let rows = stmt.query_map(rusqlite::params![params.session_id, limit_i64], |row| {
+            Ok(crate::store::memory::UserPrompt {
+                id: uuid::Uuid::parse_str(&row.get::<_, String>(0)?).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
+                })?,
+                session_id: row.get::<_, Option<String>>(1)?
+                    .and_then(|s| uuid::Uuid::parse_str(&s).ok()),
+                content: row.get(2)?,
+                project: row.get(3)?,
+                created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(4)?)
+                    .map_err(|e| {
+                        rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(e))
+                    })?.with_timezone(&chrono::Utc),
+            })
+        })?;
+        prompts = rows.collect::<Result<Vec<_>, _>>()?;
+    }
+
+    // Build a readable transcript
+    let mut transcript_lines = vec![
+        format!("## Session Transcript: {}", session.id),
+        format!("Project: {} | Started: {} | Ended: {}",
+            session.project,
+            session.started_at.to_rfc3339(),
+            session.ended_at.map(|d| d.to_rfc3339()).unwrap_or_else(|| "active".to_string())
+        ),
+        String::new(),
+    ];
+
+    if let Some(ref summary) = session.summary {
+        transcript_lines.push(format!("Summary: {}", summary));
+        transcript_lines.push(String::new());
+    }
+
+    for (i, prompt) in prompts.iter().enumerate() {
+        transcript_lines.push(format!("### Prompt {} ({})", i + 1, prompt.created_at.to_rfc3339()));
+        transcript_lines.push(prompt.content.clone());
+        transcript_lines.push(String::new());
+    }
+
+    let transcript = transcript_lines.join("\n");
+
+    Ok(json!({
+        "session": session,
+        "prompts": prompts,
+        "transcript": transcript,
+        "prompt_count": prompts.len(),
+        "layer": 3,
+        "instruction": "This is the raw transcript (Layer 3). Used for full dialogue reconstruction."
+    }))
+}
+
+// --- Passive Capture Tool ---
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemCapturePassiveParams {
+    /// Session output text to parse and extract memories from
+    text: String,
+    #[serde(default)]
+    project: Option<String>,
+    /// Optional session ID to associate captured memories with
+    #[serde(default)]
+    session_id: Option<String>,
+}
+
+fn mem_capture_passive(
+    db: &Database,
+    args: JsonObject,
+    project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemCapturePassiveParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+
+    let project = params.project.unwrap_or_else(|| project.to_string());
+    let session_id = params
+        .session_id
+        .as_deref()
+        .map(Uuid::parse_str)
+        .transpose()
+        .map_err(|e| crate::error::MnemeError::Config(e.to_string()))?;
+
+    let memories = db.memories().capture_passive(
+        &params.text,
+        &project,
+        session_id,
+        None,
+        Some(db.embeddings()),
+    )?;
+
+    Ok(json!({
+        "captured": memories,
+        "count": memories.len(),
+        "project": project
+    }))
+}
+
+// --- Conflict Detection & Judgment Tools ---
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemJudgeParams {
+    /// ID of the existing/candidate memory (memory A)
+    memory_id_a: String,
+    /// ID of the new/incoming memory (memory B)
+    memory_id_b: String,
+    /// Optional candidate_id to update after judgment
+    candidate_id: Option<i64>,
+    /// The judged relation: conflicts_with, supersedes, extends, compatible, depends_on
+    judged_relation: String,
+    /// LLM's reasoning for the judgment
+    reasoning: String,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemCompareParams {
+    /// ID of the first memory
+    memory_id_a: String,
+    /// ID of the second memory
+    memory_id_b: String,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemConflictCandidatesParams {
+    #[serde(default)]
+    project: Option<String>,
+    /// Filter by status: pending, judged, dismissed (default: pending)
+    #[serde(default = "default_pending")]
+    status: String,
+    #[serde(default = "default_limit_20")]
+    limit: u32,
+}
+
+fn default_pending() -> String {
+    "pending".to_string()
+}
+
+fn mem_judge(
+    db: &Database,
+    args: JsonObject,
+    _project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemJudgeParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+
+    let memory_id_a = Uuid::parse_str(&params.memory_id_a)
+        .map_err(|e| crate::error::MnemeError::Config(e.to_string()))?;
+    let memory_id_b = Uuid::parse_str(&params.memory_id_b)
+        .map_err(|e| crate::error::MnemeError::Config(e.to_string()))?;
+
+    // If candidate_id is provided, record the judgment
+    if let Some(candidate_id) = params.candidate_id {
+        let judgment = db.memories().judge_conflict(
+            candidate_id,
+            &params.judged_relation,
+            &params.reasoning,
+            "agent",
+        )?;
+        return Ok(json!({
+            "judgment": judgment,
+            "memory_id_a": params.memory_id_a,
+            "memory_id_b": params.memory_id_b,
+            "relation": params.judged_relation
+        }));
+    }
+
+    // Otherwise, just provide formatted context for LLM to reason about
+    let context = db.memories().get_conflict_context(memory_id_a, memory_id_b)?;
+    let memory_a = db.memories().get(memory_id_a)?;
+    let memory_b = db.memories().get(memory_id_b)?;
+
+    Ok(json!({
+        "context": context,
+        "memory_a": memory_a,
+        "memory_b": memory_b,
+        "suggested_relations": ["compatible", "conflicts_with", "supersedes", "extends", "depends_on"],
+        "instruction": "Analyze whether memory B conflicts with, extends, supersedes, depends_on, or is compatible with memory A."
+    }))
+}
+
+fn mem_compare(
+    db: &Database,
+    args: JsonObject,
+    _project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemCompareParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+
+    let memory_id_a = Uuid::parse_str(&params.memory_id_a)
+        .map_err(|e| crate::error::MnemeError::Config(e.to_string()))?;
+    let memory_id_b = Uuid::parse_str(&params.memory_id_b)
+        .map_err(|e| crate::error::MnemeError::Config(e.to_string()))?;
+
+    let memory_a = db.memories().get(memory_id_a)?
+        .ok_or_else(|| crate::error::MnemeError::NotFound(memory_id_a))?;
+    let memory_b = db.memories().get(memory_id_b)?
+        .ok_or_else(|| crate::error::MnemeError::NotFound(memory_id_b))?;
+
+    // Find shared entities
+    let entity_store = db.entities();
+    let shared_entities = entity_store.search_entities(&memory_a.title, None, 5)?;
+
+    // Check existing relations
+    let existing_relations = db.memories().get_existing_relations(memory_id_a, memory_id_b).unwrap_or_default();
+
+    // Compare structured fields
+    let comparison = json!({
+        "memory_a": {
+            "title": memory_a.title,
+            "type": memory_a.memory_type.to_string(),
+            "importance": memory_a.importance.to_string(),
+            "topic_key": memory_a.topic_key,
+            "tags": memory_a.tags,
+            "content_preview": memory_a.content[..memory_a.content.len().min(200)].to_string()
+        },
+        "memory_b": {
+            "title": memory_b.title,
+            "type": memory_b.memory_type.to_string(),
+            "importance": memory_b.importance.to_string(),
+            "topic_key": memory_b.topic_key,
+            "tags": memory_b.tags,
+            "content_preview": memory_b.content[..memory_b.content.len().min(200)].to_string()
+        },
+        "shared_entities": shared_entities.iter().map(|e| e.entity.entity_name.clone()).collect::<Vec<_>>(),
+        "existing_relations": existing_relations,
+        "same_type": memory_a.memory_type == memory_b.memory_type,
+        "same_topic_key": memory_a.topic_key.is_some() && memory_a.topic_key == memory_b.topic_key,
+        "same_project": memory_a.project == memory_b.project,
+    });
+
+    Ok(comparison)
+}
+
+fn mem_conflict_candidates(
+    db: &Database,
+    args: JsonObject,
+    project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemConflictCandidatesParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+
+    let project = params.project.unwrap_or_else(|| project.to_string());
+    let status = if params.status.is_empty() { "pending" } else { &params.status };
+    let candidates = db.memories().list_conflict_candidates(&project, Some(status), params.limit)?;
+    Ok(serde_json::to_value(candidates)?)
+}
+
+fn mem_entity_frequent(
+    db: &Database,
+    args: JsonObject,
+    project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemEntityFrequentParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+
+    let project = params.project.unwrap_or_else(|| project.to_string());
+    let entity_store = db.entities();
+    let frequent = entity_store.frequent_entities(&project, params.limit)?;
+    Ok(serde_json::to_value(frequent)?)
+}
+
 /// Returns the list of all MCP tool definitions, including plugin-provided tools.
 pub fn list_tools(plugins: Option<&crate::plugins::PluginManager>) -> Vec<Tool> {
     let mut tools = vec![
@@ -1646,6 +2534,101 @@ pub fn list_tools(plugins: Option<&crate::plugins::PluginManager>) -> Vec<Tool> 
             "keys_status",
             "Get encryption keys status",
             Arc::new(schema_for_type::<KeysStatusParams>()),
+        ),
+        Tool::new(
+            "mem_entity_extract",
+            "Extract entities from a memory or text",
+            Arc::new(schema_for_type::<MemEntityExtractParams>()),
+        ),
+        Tool::new(
+            "mem_entity_search",
+            "Search memories by extracted entity",
+            Arc::new(schema_for_type::<MemEntitySearchParams>()),
+        ),
+        Tool::new(
+            "mem_entity_links",
+            "Get entity-linked memories for a given memory",
+            Arc::new(schema_for_type::<MemEntityLinksParams>()),
+        ),
+        Tool::new(
+            "mem_entity_frequent",
+            "Get most frequent entities in a project",
+            Arc::new(schema_for_type::<MemEntityFrequentParams>()),
+        ),
+        Tool::new(
+            "mem_cloud_enroll",
+            "Enroll this project with a cloud sync server",
+            Arc::new(schema_for_type::<MemCloudEnrollParams>()),
+        ),
+        Tool::new(
+            "mem_cloud_sync",
+            "Trigger a full cloud sync cycle",
+            Arc::new(schema_for_type::<MemCloudSyncParams>()),
+        ),
+        Tool::new(
+            "mem_cloud_status",
+            "Check cloud sync status and recent sync history",
+            Arc::new(schema_for_type::<MemCloudStatusParams>()),
+        ),
+        Tool::new(
+            "mem_obsidian_export",
+            "Export memories to an Obsidian vault (.md files with frontmatter + wikilinks)",
+            Arc::new(schema_for_type::<MemObsidianExportParams>()),
+        ),
+        Tool::new(
+            "mem_watch_scan",
+            "Scan a directory and auto-index markdown files as memories",
+            Arc::new(schema_for_type::<MemWatchScanParams>()),
+        ),
+        Tool::new(
+            "mem_compress",
+            "Compress a memory's content for token-efficient context injection",
+            Arc::new(schema_for_type::<MemCompressParams>()),
+        ),
+        Tool::new(
+            "mem_compress_batch",
+            "Compress multiple memories in a project",
+            Arc::new(schema_for_type::<MemCompressBatchParams>()),
+        ),
+        Tool::new(
+            "mem_compress_context",
+            "Generate a compressed context block for prompt injection",
+            Arc::new(schema_for_type::<MemCompressContextParams>()),
+        ),
+        Tool::new(
+            "mem_temporal_query",
+            "Query facts that were valid at a specific point in time",
+            Arc::new(schema_for_type::<MemTemporalQueryParams>()),
+        ),
+        Tool::new(
+            "mem_expand",
+            "[Layer 2] Get expanded view of a memory with full content, entities, and links",
+            Arc::new(schema_for_type::<MemExpandParams>()),
+        ),
+        Tool::new(
+            "mem_transcript",
+            "[Layer 3] Get raw session transcript with all prompts",
+            Arc::new(schema_for_type::<MemTranscriptParams>()),
+        ),
+        Tool::new(
+            "mem_capture_passive",
+            "Parse session output and auto-save memories (Key Learnings, Decisions, Architecture, etc.)",
+            Arc::new(schema_for_type::<MemCapturePassiveParams>()),
+        ),
+        Tool::new(
+            "mem_judge",
+            "Judge the relationship between two memories (optionally recording the result)",
+            Arc::new(schema_for_type::<MemJudgeParams>()),
+        ),
+        Tool::new(
+            "mem_compare",
+            "Compare two memories side-by-side with shared entities and existing relations",
+            Arc::new(schema_for_type::<MemCompareParams>()),
+        ),
+        Tool::new(
+            "mem_conflict_candidates",
+            "List auto-detected conflict candidates for LLM judgment",
+            Arc::new(schema_for_type::<MemConflictCandidatesParams>()),
         ),
     ];
 

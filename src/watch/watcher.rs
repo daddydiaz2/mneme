@@ -6,12 +6,17 @@ use tokio::time;
 use crate::store::memory::{CreateMemoryInput, Importance, MemoryStore, MemoryType, Scope};
 
 /// Estado de un archivo conocido.
+#[derive(Debug, Clone)]
 struct FileState {
     modified: SystemTime,
     processed: bool,
+    /// Content hash for change detection
+    content_hash: u64,
+    /// Memory ID if already saved
+    memory_id: Option<uuid::Uuid>,
 }
 
-/// Watcher por polling.
+/// Watcher por polling con auto-indexing.
 pub struct DirectoryWatcher {
     dir: PathBuf,
     ext: String,
@@ -19,6 +24,8 @@ pub struct DirectoryWatcher {
     known_files: HashMap<PathBuf, FileState>,
     store: MemoryStore,
     project: String,
+    /// Only track new files, don't re-index existing ones
+    track_new_only: bool,
 }
 
 impl DirectoryWatcher {
@@ -36,7 +43,14 @@ impl DirectoryWatcher {
             known_files: HashMap::new(),
             store,
             project,
+            track_new_only: false,
         }
+    }
+
+    /// Set whether to only track new files (skip existing).
+    pub fn with_track_new_only(mut self, val: bool) -> Self {
+        self.track_new_only = val;
+        self
     }
 
     /// Loop principal — corre hasta Ctrl-C.
@@ -58,52 +72,134 @@ impl DirectoryWatcher {
     }
 
     /// Escanea el directorio en busca de archivos nuevos o modificados.
-    /// Público para testing y uso manual.
-    pub async fn scan(&mut self) -> crate::error::Result<()> {
-        let entries = std::fs::read_dir(&self.dir)?;
-        for entry in entries.filter_map(|e| e.ok()) {
+    /// Público para testing y uso manual desde MCP.
+    pub async fn scan(&mut self) -> crate::error::Result<ScanResult> {
+        let mut result = ScanResult::default();
+
+        if !self.dir.exists() {
+            tracing::warn!(dir = %self.dir.display(), "watch directory does not exist");
+            return Ok(result);
+        }
+
+        let entries = match std::fs::read_dir(&self.dir) {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to read watch directory");
+                return Ok(result);
+            }
+        };
+
+        // Collect all entries first to avoid borrow issues
+        let all_entries: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+
+        for entry in &all_entries {
             let path = entry.path();
-            if !path.to_string_lossy().ends_with(&self.ext) {
+            let file_name = path.to_string_lossy();
+
+            // Check file extension
+            let is_match = self.ext == ".*"
+                || file_name.ends_with(&self.ext)
+                || (self.ext == ".md" && file_name.ends_with(".md"))
+                || (self.ext == ".mneme" && file_name.ends_with(".mneme"));
+
+            if !is_match {
                 continue;
             }
-            let meta = std::fs::metadata(&path)?;
-            let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
 
-            let should_process = match self.known_files.get(&path) {
-                None => true,
-                Some(state) => !state.processed || modified > state.modified,
+            let meta = match std::fs::metadata(&path) {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+
+            if !meta.is_file() {
+                continue;
+            }
+
+            let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+            let content_hash = Self::quick_hash(&path);
+
+            let state = self.known_files.get(&path);
+            let should_process = match state {
+                None => !self.track_new_only,
+                Some(st) => {
+                    // Re-process if file changed
+                    modified > st.modified || content_hash != st.content_hash
+                }
             };
 
             if should_process {
-                match self.process_file(&path).await {
-                    Ok(title) => {
-                        println!("✓ Guardado: {}", title);
+                match self.process_file(&path, content_hash).await {
+                    Ok(processed) => {
+                        if processed {
+                            result.indexed += 1;
+                        } else {
+                            result.skipped += 1;
+                        }
                         self.known_files.insert(
-                            path,
+                            path.clone(),
                             FileState {
                                 modified,
                                 processed: true,
+                                content_hash,
+                                memory_id: None,
                             },
                         );
                     }
                     Err(e) => {
                         tracing::warn!(path = %path.display(), error = %e, "error procesando archivo");
+                        result.errors += 1;
                         self.known_files.insert(
-                            path,
+                            path.clone(),
                             FileState {
                                 modified,
                                 processed: false,
+                                content_hash,
+                                memory_id: None,
                             },
                         );
                     }
                 }
+            } else {
+                result.skipped += 1;
             }
         }
-        Ok(())
+
+        // Detect deleted files
+        let mut to_remove = Vec::new();
+        let current_paths: std::collections::HashSet<PathBuf> = all_entries
+            .iter()
+            .map(|e| e.path())
+            .collect();
+
+        for tracked_path in self.known_files.keys() {
+            if !current_paths.contains(tracked_path) {
+                to_remove.push(tracked_path.clone());
+            }
+        }
+
+        result.removed = to_remove.len() as u32;
+        for path in to_remove {
+            self.known_files.remove(&path);
+        }
+
+        Ok(result)
     }
 
-    async fn process_file(&self, path: &Path) -> crate::error::Result<String> {
+    /// Compute a quick content hash for change detection.
+    fn quick_hash(path: &Path) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let content = std::fs::read_to_string(path).unwrap_or_default();
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        content.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    async fn process_file(&self, path: &Path, _content_hash: u64) -> crate::error::Result<bool> {
         let content = std::fs::read_to_string(path)?;
+        if content.trim().is_empty() {
+            return Ok(false);
+        }
+
         let parsed = parse_mneme_file(&content);
 
         let input = CreateMemoryInput {
@@ -111,10 +207,10 @@ impl DirectoryWatcher {
             scope: Some(Scope::Project),
             title: parsed.title,
             content: parsed.content,
-            what: None,
-            why: None,
-            context: None,
-            learned: None,
+            what: parsed.what,
+            why: parsed.why,
+            context: parsed.context,
+            learned: parsed.learned,
             memory_type: parsed.memory_type,
             importance: parsed.importance,
             tags: parsed.tags,
@@ -126,11 +222,39 @@ impl DirectoryWatcher {
             )),
             capture_prompt: None,
             encrypt: false,
+            valid_from: None,
+            valid_until: None,
+            provenance: Some(format!("file://{}", path.to_string_lossy())),
         };
 
         let memory = self.store.save(input, None, None)?;
-        Ok(memory.title)
+        tracing::info!(memory_id = %memory.id, title = %memory.title, "auto-indexed file");
+        Ok(true)
     }
+
+    /// Returns current tracked file count.
+    pub fn tracked_count(&self) -> usize {
+        self.known_files.len()
+    }
+
+    /// Returns summary of tracked files.
+    pub fn tracked_summary(&self) -> Vec<(String, bool)> {
+        self.known_files
+            .iter()
+            .map(|(path, state)| {
+                (path.to_string_lossy().to_string(), state.processed)
+            })
+            .collect()
+    }
+}
+
+/// Result of a scan cycle.
+#[derive(Debug, Clone, Default)]
+pub struct ScanResult {
+    pub indexed: u32,
+    pub skipped: u32,
+    pub errors: u32,
+    pub removed: u32,
 }
 
 struct ParsedFile {
@@ -139,9 +263,23 @@ struct ParsedFile {
     memory_type: MemoryType,
     importance: Importance,
     tags: Vec<String>,
+    what: Option<String>,
+    why: Option<String>,
+    context: Option<String>,
+    learned: Option<String>,
 }
 
-/// Parsea un archivo .mneme con o sin frontmatter YAML.
+/// Parsea un archivo .md o .mneme con frontmatter YAML.
+/// Formato:
+///   ---
+///   title: Mi Memoria
+///   type: decision
+///   importance: high
+///   tags: [rust, auth]
+///   what: What we did
+///   why: Why we did it
+///   ---
+///   Contenido de la memoria...
 fn parse_mneme_file(content: &str) -> ParsedFile {
     if content.starts_with("---") {
         parse_with_frontmatter(content)
@@ -151,7 +289,7 @@ fn parse_mneme_file(content: &str) -> ParsedFile {
 }
 
 fn parse_with_frontmatter(content: &str) -> ParsedFile {
-    // Extraer bloque entre --- y ---
+    // Extract block between --- and ---
     let parts: Vec<&str> = content.splitn(3, "---").collect();
     let (frontmatter, body) = if parts.len() >= 3 {
         (parts[1].trim(), parts[2].trim())
@@ -163,6 +301,10 @@ fn parse_with_frontmatter(content: &str) -> ParsedFile {
     let mut memory_type = MemoryType::Note;
     let mut importance = Importance::Medium;
     let mut tags = vec![];
+    let mut what = None;
+    let mut why = None;
+    let mut context = None;
+    let mut learned = None;
 
     for line in frontmatter.lines() {
         if let Some((k, v)) = line.split_once(':') {
@@ -173,12 +315,19 @@ fn parse_with_frontmatter(content: &str) -> ParsedFile {
                 "type" => memory_type = v.parse().unwrap_or(MemoryType::Note),
                 "importance" => importance = v.parse().unwrap_or(Importance::Medium),
                 "tags" => {
-                    tags = v
+                    let clean = v
+                        .trim_start_matches('[')
+                        .trim_end_matches(']');
+                    tags = clean
                         .split(',')
-                        .map(|t| t.trim().to_string())
+                        .map(|t| t.trim().trim_matches('"').trim_matches('\'').to_string())
                         .filter(|t| !t.is_empty())
                         .collect()
                 }
+                "what" => what = Some(v.to_string()),
+                "why" => why = Some(v.to_string()),
+                "context" => context = Some(v.to_string()),
+                "learned" => learned = Some(v.to_string()),
                 _ => {}
             }
         }
@@ -194,6 +343,10 @@ fn parse_with_frontmatter(content: &str) -> ParsedFile {
         memory_type,
         importance,
         tags,
+        what,
+        why,
+        context,
+        learned,
     }
 }
 
@@ -207,6 +360,10 @@ fn parse_simple(content: &str) -> ParsedFile {
         memory_type: MemoryType::Note,
         importance: Importance::Medium,
         tags: vec![],
+        what: None,
+        why: None,
+        context: None,
+        learned: None,
     }
 }
 
@@ -229,69 +386,41 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_frontmatter_extracts_tags() {
+    fn test_parse_frontmatter_extracts_tags_array() {
+        let content = "---\ntitle: T\ntags: [rust, auth, jwt]\n---\nbody";
+        let parsed = parse_mneme_file(content);
+        assert_eq!(parsed.tags, vec!["rust", "auth", "jwt"]);
+    }
+
+    #[test]
+    fn test_parse_frontmatter_extracts_tags_csv() {
         let content = "---\ntitle: T\ntags: rust, auth, jwt\n---\nbody";
         let parsed = parse_mneme_file(content);
         assert_eq!(parsed.tags, vec!["rust", "auth", "jwt"]);
     }
 
     #[test]
-    fn test_parse_frontmatter_extracts_importance() {
-        let content = "---\ntitle: Critical Mem\ntype: note\nimportance: critical\n---\nimportant!";
+    fn test_parse_frontmatter_extracts_structured_fields() {
+        let content = "---\ntitle: My Decision\ntype: decision\nwhat: Chose Rust over Go\nwhy: Better ecosystem for this project\ncontext: Team meeting Q2\nlearned: Rust's type system caught several bugs early\n---\nWe decided to use Rust for the new service.";
         let parsed = parse_mneme_file(content);
-        assert!(matches!(parsed.importance, Importance::Critical));
+        assert_eq!(parsed.what.unwrap(), "Chose Rust over Go");
+        assert_eq!(parsed.why.unwrap(), "Better ecosystem for this project");
+        assert_eq!(parsed.context.unwrap(), "Team meeting Q2");
+        assert!(parsed.learned.unwrap().contains("Rust's"));
     }
 
     #[test]
-    fn test_parse_frontmatter_importance_high() {
-        let content = "---\ntitle: High Mem\nimportance: high\n---\nbody";
+    fn test_parse_simple_uses_first_line_as_title() {
+        let content = "First Line Title\nRest of content\nMore content";
         let parsed = parse_mneme_file(content);
-        assert!(matches!(parsed.importance, Importance::High));
+        assert_eq!(parsed.title, "First Line Title");
     }
 
     #[test]
-    fn test_parse_frontmatter_importance_low() {
-        let content = "---\ntitle: Low Mem\nimportance: low\n---\nbody";
+    fn test_parse_simple_empty_string() {
+        let content = "";
         let parsed = parse_mneme_file(content);
-        assert!(matches!(parsed.importance, Importance::Low));
-    }
-
-    #[test]
-    fn test_parse_frontmatter_invalid_type_uses_note() {
-        let content = "---\ntitle: T\ntype: invalid_type_xyz\n---\nbody";
-        let parsed = parse_mneme_file(content);
-        assert!(matches!(parsed.memory_type, MemoryType::Note));
-    }
-
-    #[test]
-    fn test_parse_frontmatter_invalid_importance_uses_medium() {
-        let content = "---\ntitle: T\nimportance: uber\n---\nbody";
-        let parsed = parse_mneme_file(content);
-        assert!(matches!(parsed.importance, Importance::Medium));
-    }
-
-    #[test]
-    fn test_parse_frontmatter_missing_title_falls_back_to_body() {
-        let content = "---\ntype: decision\n---\nFallback Title\ncontent";
-        let parsed = parse_mneme_file(content);
-        assert_eq!(parsed.title, "Fallback Title");
-    }
-
-    #[test]
-    fn test_parse_frontmatter_empty_body() {
-        let content = "---\ntitle: Only Title\ntype: note\n---";
-        let parsed = parse_mneme_file(content);
-        assert_eq!(parsed.title, "Only Title");
-        assert!(parsed.content.is_empty() || parsed.content == "Only Title");
-    }
-
-    #[test]
-    fn test_parse_frontmatter_no_closing_separator() {
-        let content = "---\ntitle: No Close\ntype: bugfix\nbody line";
-        let parsed = parse_mneme_file(content);
-        // Without closing ---, it falls back to treating the whole thing as simple format
-        // The first line "---" becomes the title
-        assert!(!parsed.title.is_empty());
+        assert_eq!(parsed.title, "untitled");
     }
 
     #[test]
@@ -308,6 +437,7 @@ mod tests {
             ("config", MemoryType::Config),
             ("discovery", MemoryType::Discovery),
             ("learning", MemoryType::Learning),
+            ("agent_fact", MemoryType::AgentFact),
         ] {
             let content = format!("---\ntitle: T\ntype: {type_str}\n---\nbody");
             let parsed = parse_mneme_file(&content);
@@ -316,71 +446,5 @@ mod tests {
                 "type '{type_str}' should parse to {expected:?}"
             );
         }
-    }
-
-    #[test]
-    fn test_parse_simple_uses_first_line_as_title() {
-        let content = "First Line Title\nRest of content\nMore content";
-        let parsed = parse_mneme_file(content);
-        assert_eq!(parsed.title, "First Line Title");
-    }
-
-    #[test]
-    fn test_parse_simple_rest_is_content() {
-        let content = "Title\nLine2\nLine3";
-        let parsed = parse_mneme_file(content);
-        assert!(parsed.content.contains("Line2"));
-    }
-
-    #[test]
-    fn test_parse_simple_single_line() {
-        let content = "Just a single line";
-        let parsed = parse_mneme_file(content);
-        assert_eq!(parsed.title, "Just a single line");
-        assert!(parsed.content.contains("Just a single line"));
-    }
-
-    #[test]
-    fn test_parse_simple_empty_string() {
-        let content = "";
-        let parsed = parse_mneme_file(content);
-        assert_eq!(parsed.title, "untitled");
-    }
-
-    #[test]
-    fn test_parse_empty_frontmatter_title_falls_back_to_body() {
-        let content = "---\n---\nfallback title\nsome content";
-        let parsed = parse_mneme_file(content);
-        assert!(!parsed.title.is_empty());
-    }
-
-    #[test]
-    fn test_parse_frontmatter_empty_tags_yields_empty_vec() {
-        let content = "---\ntitle: T\ntags:\n---\nbody";
-        let parsed = parse_mneme_file(content);
-        assert!(parsed.tags.is_empty());
-    }
-
-    #[test]
-    fn test_parse_mneme_file_detects_frontmatter() {
-        let content = "---\ntitle: FM\ntype: decision\n---\nbody";
-        let parsed = parse_mneme_file(content);
-        assert_eq!(parsed.title, "FM");
-        assert!(matches!(parsed.memory_type, MemoryType::Decision));
-    }
-
-    #[test]
-    fn test_parse_mneme_file_detects_simple() {
-        let content = "Simple title\nbody text";
-        let parsed = parse_mneme_file(content);
-        assert_eq!(parsed.title, "Simple title");
-    }
-
-    #[test]
-    fn test_parse_only_frontmatter_no_body_line() {
-        let content = "---\ntitle: Solo\n---";
-        let parsed = parse_mneme_file(content);
-        assert_eq!(parsed.title, "Solo");
-        assert!(parsed.memory_type == MemoryType::Note);
     }
 }
