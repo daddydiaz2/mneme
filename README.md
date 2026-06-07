@@ -2,12 +2,14 @@
 
 <div align="center">
 
+![mneme banner](assets/imagen.png)
+
 ![Rust](https://img.shields.io/badge/Rust-2021-CE422B?logo=rust&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-FTS5-003B57?logo=sqlite&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-40_tools-6C3483?logo=anthropic&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-**Sistema de memoria persistente para agentes de IA** — búsqueda híbrida (FTS5 + fuzzy + embeddings ONNX), encriptación age/SSH, sync CRDT P2P, TUI interactiva, MCP server y HTTP API.
+**Sistema de memoria persistente para agentes de IA** — búsqueda híbrida (FTS5 + fuzzy + embeddings ONNX), encriptación age/SSH, sync CRDT P2P, TUI interactiva con grafo visual, plugins WASM, MCP server y HTTP API.
 
 </div>
 
@@ -22,6 +24,7 @@
 - [Busqueda Hibrida](#busqueda-hibrida)
 - [Encriptacion](#encriptacion)
 - [Sync CRDT](#sync-crdt)
+- [Plugins WASM](#plugins-wasm)
 - [Requisitos](#requisitos)
 - [Instalacion](#instalacion)
 - [Uso Rapido](#uso-rapido)
@@ -73,11 +76,18 @@
 - **Compresión zstd** en tránsito
 - Sync bidireccional: `pull` + `push`
 
+### Plugins WASM
+- **extism 1.30** — plugins sandboxeados en WebAssembly, pure-Rust
+- **Feature flag** `plugins` — off by default, zero overhead sin el flag
+- **ABI JSON**: `plugin_manifest` · `call_tool` · `transform_memory`
+- **Hooks**: `pre_save` / `post_get` encadenados entre plugins
+- **Discovery**: `~/.config/mneme/plugins/*.wasm` al startup
+
 ### Interfaz
 - **MCP server** con 40 herramientas — compatible con Claude Code, OpenCode, Continue
 - **HTTP API REST** — 30+ endpoints, compatible con cualquier cliente
 - **CLI** — 25+ subcomandos
-- **TUI ratatui** — lista + detalle, búsqueda inline, indicadores `🔒` para memorias encriptadas
+- **TUI ratatui** — lista + detalle + **grafo visual interactivo** de relaciones, búsqueda inline, indicadores `🔒`
 - **Watch mode** — monitorea directorio, auto-guarda archivos `.mneme`
 
 ---
@@ -106,6 +116,7 @@ flowchart TB
         Crypto["CryptoEngine\nage / SSH"]
         Embed["EmbeddingEngine\n(feature flag)\nfastembed ONNX"]
         Sync["SyncEngine\nautomerge CRDT"]
+        Plugins["PluginManager\n(feature flag)\nextism WASM"]
     end
 
     subgraph Storage["Almacenamiento"]
@@ -129,6 +140,7 @@ flowchart TB
     Core --> Crypto
     Core --> Embed
     Core --> Sync
+    Core --> Plugins
 
     Search --> SQLite
     Embed --> Vectors
@@ -148,6 +160,7 @@ flowchart TB
 +----------------------------------------------------------+
 |  Feature Layers                                           |
 |  CryptoEngine (age) · EmbeddingEngine (ONNX) · SyncEngine|
+|  PluginManager (WASM / extism)                           |
 +----------------------------------------------------------+
 |  Storage Layer                                            |
 |  SQLite WAL + FTS5 · Migraciones 001-008                 |
@@ -166,7 +179,7 @@ flowchart TB
 | **MCP** | rmcp | 0.1 | Protocolo MCP stdio |
 | **HTTP** | axum | 0.7 | API REST |
 | **CLI** | clap | 4 | Subcomandos + env vars |
-| **TUI** | ratatui | 0.27 | Interfaz de terminal |
+| **TUI** | ratatui | 0.27 | Interfaz de terminal + Canvas grafo |
 | **TUI eventos** | crossterm | 0.27 | Input + raw mode |
 | **Serialización** | serde / serde_json | 1 | JSON |
 | **Tipos** | uuid, chrono | 1 / 0.4 | IDs y timestamps |
@@ -176,6 +189,7 @@ flowchart TB
 | **Compresión** | zstd | 0.13 | Sync transport |
 | **HTTP client** | reqwest | 0.12 | Sync HTTP transport |
 | **Fuzzy** | fuzzy-matcher | 0.3 | Búsqueda aproximada |
+| **Plugins** | extism | 1.30 | Runtime WASM sandboxeado (feature flag) |
 | **Logging** | tracing | 0.1 | Structured logging |
 
 ---
@@ -385,6 +399,35 @@ mneme sync import sync.mneme           # importar desde archivo
 
 ---
 
+## Plugins WASM
+
+Los plugins extienden mneme sin recompilar — se descubren en `~/.config/mneme/plugins/*.wasm` al arrancar.
+
+### Compilar con soporte de plugins
+
+```bash
+cargo build --release --features plugins
+```
+
+### ABI del plugin (3 funciones a exportar)
+
+```
+plugin_manifest()          → { name, version, tools: [...], hooks: [...] }
+call_tool(json)            → { success, data, error }
+transform_memory(json)     → { memory: {...} }
+```
+
+### Hooks disponibles
+
+| Hook | Cuándo se invoca |
+|------|-----------------|
+| `pre_save` | Antes de persistir una memoria — puede transformar el contenido |
+| `post_get` | Después de recuperar una memoria — puede enriquecer o filtrar |
+
+Los hooks se encadenan: la salida del plugin N es la entrada del plugin N+1.
+
+---
+
 ## Requisitos
 
 - **Rust 1.75+** — `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
@@ -401,14 +444,20 @@ mneme sync import sync.mneme           # importar desde archivo
 git clone git@github.com:daddydiaz2/mneme.git
 cd mneme
 
-# Sin embeddings (binario ~13 MB)
+# Sin features opcionales (binario ~13 MB)
 cargo build --release
 
 # Con embeddings ONNX (binario ~37 MB)
 cargo build --release --features embeddings
 
+# Con plugins WASM
+cargo build --release --features plugins
+
+# Todo habilitado
+cargo build --release --features embeddings,plugins
+
 # Instalar globalmente
-cargo install --path . [--features embeddings]
+cargo install --path .
 ```
 
 ### Configuracion de agentes
@@ -467,7 +516,7 @@ El servidor MCP se inicia con `mneme mcp` y se comunica por stdio. Los agentes l
   "params": {
     "project": "mi-app",
     "title": "Fixed N+1 en UserList",
-    "content": "**What**: ...\n**Why**: ...",
+    "content": "**What**: ...\\n**Why**: ...",
     "memory_type": "bugfix",
     "importance": "high",
     "tags": ["performance", "db"]
@@ -620,28 +669,51 @@ El servidor HTTP se inicia con `mneme serve [--port 8080]`.
 mneme tui
 ```
 
+### Vista de lista + detalle
+
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ mneme v0.1.0 │ proyecto: mi-app       │ [Q]uit [/]Search [?]Help │
-├────────────────────┬────────────────────────────────────────────┤
-│ MEMORIAS           │ DETALLE                                     │
-│  🔒 ● [ARCH] ...  │ Título: JWT auth middleware                  │
-│ >   ● [DEC]  ...  │ Tipo: decision   Importancia: high           │
-│     ● [BUG]  ...  │ Proyecto: mi-app                            │
-│     ● [PAT]  ...  │ Tags: [rust] [auth] [jwt]                   │
-│  🔒 ● [NOTE] ...  │                                             │
-│                    │ ── Contenido ─────────────────────────────  │
-│                    │ **What**: Implementé JWT Bearer             │
-│                    │ **Why**: Auth stateless cross-instance      │
-│                    │ **Where**: src/auth/middleware.rs           │
-├────────────────────┴────────────────────────────────────────────┤
-│ [↑↓/jk] Navegar  [/] Buscar  [r] Refresh  [d] Delete  [q] Salir │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│ mneme v0.5.0 │ proyecto: mi-app  │ [Q]uit [/]Search [Tab]Grafo [?]Help │
+├────────────────────┬────────────────────────────────────────────────┤
+│ MEMORIAS           │ DETALLE                                         │
+│  🔒 ● [ARCH] ...  │ Título: JWT auth middleware                      │
+│ >   ● [DEC]  ...  │ Tipo: decision   Importancia: high               │
+│     ● [BUG]  ...  │ Proyecto: mi-app                                │
+│     ● [PAT]  ...  │ Tags: [rust] [auth] [jwt]                       │
+│  🔒 ● [NOTE] ...  │                                                 │
+│                    │ ── Contenido ─────────────────────────────────  │
+│                    │ **What**: Implementé JWT Bearer                 │
+│                    │ **Why**: Auth stateless cross-instance          │
+│                    │ **Where**: src/auth/middleware.rs               │
+├────────────────────┴────────────────────────────────────────────────┤
+│ [↑↓/jk] Navegar  [Tab] Grafo  [/] Buscar  [d] Eliminar  [Q] Salir  │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Controles**: `j`/`k`/`↑↓` navegar · `g`/`G` primero/último · `/` buscar inline · `r` refrescar · `d` delete con confirmación · `?` ayuda · `q` salir.
+### Vista de grafo interactivo (`Tab`)
 
-**Indicadores**: `🔒` magenta = memoria encriptada · `●` rojo/amarillo/verde = importancia · `[TYPE]` tipo abreviado.
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ mneme v0.5.0 │ proyecto: mi-app  │ [Q]uit [/]Search [Tab]Grafo [?]Help │
+├─────────────────────────── GRAFO ───────────────────────────────────┤
+│                                                                      │
+│              [JWT middlewar]          ● CRDT sync                   │
+│                    │                        │                        │
+│              related ──────────────── supersedes                    │
+│                    │                                                 │
+│         ● bugfix N+1      ● arch-hexagonal                          │
+│                    └────── conflicts_with ────┘                     │
+│                                                                      │
+├─────────────────────────────────────────────────────────────────────┤
+│ [Tab/Esc] Volver  [j/k] Seleccionar nodo  [r] Recargar  [Q] Salir  │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Controles lista**: `j`/`k`/`↑↓` navegar · `g`/`G` primero/último · `Tab` abrir grafo · `/` buscar inline · `r` refrescar · `d` delete con confirmación · `?` ayuda · `q` salir.
+
+**Controles grafo**: `Tab`/`Esc` volver · `j`/`k` seleccionar nodo · `r` recargar relaciones.
+
+**Indicadores**: `🔒` magenta = memoria encriptada · `●` rojo/amarillo/verde/gris = importancia (critical/high/medium/low) · `[TYPE]` tipo abreviado · nodo cyan = seleccionado · aristas verde/amarillo/gris = confidence ≥0.8 / ≥0.5 / <0.5.
 
 ---
 
@@ -682,10 +754,12 @@ Contenido libre de la memoria...
 
 ```
 mneme/
+├── assets/
+│   └── imagen.png                 # Banner y recursos visuales del README
 ├── src/
 │   ├── main.rs                    # Entry point: init chain → dispatch
 │   ├── lib.rs                     # Re-exports de módulos públicos
-│   ├── error.rs                   # MnemeError (18+ variantes)
+│   ├── error.rs                   # MnemeError (26+ variantes)
 │   ├── cli/
 │   │   ├── commands.rs            # 25+ subcomandos Clap
 │   │   └── output.rs              # Pretty-print con colores
@@ -693,17 +767,17 @@ mneme/
 │   │   └── settings.rs            # Settings: DB, Server, MCP, Crypto, Sync, Embeddings
 │   ├── store/
 │   │   ├── db.rs                  # Database: open, WAL, PRAGMAs, stores
-│   │   ├── memory.rs              # MemoryStore, SessionStore, tipos
+│   │   ├── memory.rs              # MemoryStore, SessionStore, tipos, GraphData
 │   │   ├── search.rs              # SearchEngine híbrido + SearchWeights
-│   │   └── migrations.rs         # Registro de migraciones 001-008
+│   │   └── migrations.rs          # Registro de migraciones 001-008
 │   ├── mcp/
-│   │   ├── server.rs              # MnemeServer (stdio JSON-RPC)
-│   │   └── tools.rs               # 40 handlers de herramientas MCP
+│   │   ├── server.rs              # MnemeServer (stdio JSON-RPC) + PluginManager
+│   │   └── tools.rs               # 40 handlers MCP + dispatch dinámico de plugins
 │   ├── http/
 │   │   ├── router.rs              # create_router (axum)
 │   │   └── handlers.rs            # 30+ handlers HTTP
 │   ├── embeddings/                # Feature flag: --features embeddings
-│   │   ├── mod.rs                 # Re-exports + stubs para compilación sin feature
+│   │   ├── mod.rs                 # Re-exports + stubs
 │   │   ├── engine.rs              # EmbeddingEngine (fastembed ONNX)
 │   │   ├── store.rs               # EmbeddingStore (BLOB f32 LE)
 │   │   └── similarity.rs          # cosine_similarity, SemanticMatch
@@ -719,10 +793,17 @@ mneme/
 │   │   └── transport/
 │   │       ├── http.rs            # HttpTransport (reqwest)
 │   │       └── file.rs            # FileTransport (zstd export/import)
+│   ├── plugins/                   # Feature flag: --features plugins
+│   │   ├── manifest.rs            # PluginManifest, PluginTool
+│   │   ├── manager.rs             # PluginManager: discovery, load, dispatch, hooks
+│   │   └── mod.rs                 # Re-exports
 │   ├── tui/
-│   │   ├── app.rs                 # App: estado, navegación, búsqueda
-│   │   ├── events.rs              # Manejo de teclas (crossterm)
-│   │   └── ui.rs                  # Render: lista, detalle, overlays
+│   │   ├── app.rs                 # App: estado, modos (Normal/Graph/Search/Help/Confirm)
+│   │   ├── events.rs              # Manejo de teclas por AppMode
+│   │   ├── graph.rs               # layout_nodes() circular, truncate_title()
+│   │   └── ui.rs                  # Render: lista, detalle, grafo Canvas, overlays
+│   ├── export/
+│   │   └── markdown.rs            # export_to_markdown, import_from_markdown
 │   └── watch/
 │       └── watcher.rs             # DirectoryWatcher: polling + parse .mneme
 ├── migrations/
@@ -732,15 +813,21 @@ mneme/
 │   ├── 004_tools.sql              # Columnas feedback, deprecated, supersedes
 │   ├── 005_sync.sql               # Tablas sync: state, peers, log
 │   ├── 006_sync_origin.sql        # Columna origin_peer
-│   ├── 007_encryption.sql         # Columnas is_encrypted, encrypted_for; tabla encryption_keys
-│   └── 008_fts5_encryption_aware.sql  # Triggers FTS5 que excluyen campos cifrados
+│   ├── 007_encryption.sql         # Columnas is_encrypted, encrypted_for; encryption_keys
+│   └── 008_fts5_encryption_aware.sql  # Triggers FTS5 encryption-aware
 ├── tests/
-│   ├── store_tests.rs             # Tests unitarios del MemoryStore
-│   ├── mcp_tests.rs               # Tests del servidor MCP
-│   ├── integration_tests.rs       # Tests de integración end-to-end
-│   ├── embeddings_tests.rs        # Tests de embeddings (requiere --features embeddings)
-│   ├── sync_tests.rs              # Tests de sync CRDT
-│   └── crypto_tests.rs            # Tests de encriptación age
+│   ├── store_tests.rs
+│   ├── mcp_tests.rs
+│   ├── integration_tests.rs
+│   ├── embeddings_tests.rs
+│   ├── sync_tests.rs
+│   ├── crypto_tests.rs
+│   ├── store_extended_tests.rs
+│   ├── config_tests.rs
+│   ├── search_tests.rs
+│   ├── export_tests.rs
+│   ├── plugin_tests.rs
+│   └── tui_graph_tests.rs
 ├── Cargo.toml
 └── README.md
 ```
@@ -763,21 +850,18 @@ mneme/
 - [x] Encriptación granular con age / SSH keys
 - [x] Sync CRDT P2P con automerge (HTTP + file transport)
 - [x] TUI interactiva con ratatui
+- [x] Grafo visual interactivo en TUI (Canvas, layout circular, `Tab`)
 - [x] Watch mode (monitoreo de directorio)
+- [x] Export/import Markdown
 - [x] Feature flag `embeddings` — binario base 13 MB
+- [x] Plugins WASM con extism (feature flag `plugins`)
 - [x] Setup automático para Claude Code, OpenCode, Continue
-
-### En Progreso
-
-- [ ] Cobertura de tests al 60%
 
 ### Planificado
 
-- [ ] Plugins WASM — extender mneme sin recompilar
-- [ ] Grafo visual en TUI (relaciones interactivas)
-- [ ] Export/import JSON y Markdown
 - [ ] Docker image oficial
 - [ ] Documentación de API con ejemplos interactivos
+- [ ] Cobertura de tests al 60%+
 
 ---
 
@@ -805,8 +889,8 @@ mneme/
 
 <div align="center">
 
-Desarrollado en Rust 2021 · SQLite · automerge · age · ratatui
+Desarrollado en Rust 2021 · SQLite · automerge · age · ratatui · extism
 
-**mneme** — Memoria persistente para agentes de IA
+**mneme** — Memoria que persiste, conocimiento que evoluciona.
 
 </div>
