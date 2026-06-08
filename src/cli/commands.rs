@@ -226,6 +226,39 @@ pub enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Consolidación: compacta memorias viejas/stale/deprecadas en resúmenes.
+    Consolidate {
+        /// Proyecto.
+        #[arg(long, short = 'p', env = "MNEME_PROJECT")]
+        project: Option<String>,
+        /// Estrategia: auto, age, deprecated, unused.
+        #[arg(long, default_value = "auto")]
+        strategy: String,
+        /// Días para stale (default 30).
+        #[arg(long, default_value_t = 30)]
+        days: u64,
+        /// Dry run (no borra).
+        #[arg(long)]
+        dry_run: bool,
+        /// JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Memory blocks (Letta-inspired): human, persona, workflow.
+    Block {
+        /// Proyecto.
+        #[arg(long, short = 'p', env = "MNEME_PROJECT")]
+        project: Option<String>,
+        /// Slot: human, persona, workflow (omite para listar).
+        #[arg(long)]
+        slot: Option<String>,
+        /// Título para el slot.
+        #[arg(long)]
+        title: Option<String>,
+        /// Contenido para el slot. Si se omite, muestra slot.
+        #[arg(long)]
+        content: Option<String>,
+    },
     /// Guarda un lote de memorias desde un archivo JSON.
     SaveBatch {
         /// Archivo JSON con el lote de memorias.
@@ -829,6 +862,55 @@ pub fn run_command(
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 println!("{}", crate::learn::format_failure_report(&report));
+            }
+        }
+        Commands::Consolidate { project, strategy, days, dry_run, json } => {
+            let eng_db = std::sync::Arc::new(db.clone());
+            let eng = crate::consolidate::ConsolidationEngine::new(eng_db);
+            let project = project.unwrap_or_else(Settings::infer_project);
+            let strat = match strategy.as_str() {
+                "age" => crate::consolidate::ConsolidationStrategy::Age,
+                "deprecated" => crate::consolidate::ConsolidationStrategy::Deprecated,
+                "unused" => crate::consolidate::ConsolidationStrategy::Unused,
+                _ => crate::consolidate::ConsolidationStrategy::Auto,
+            };
+            let result = eng.consolidate(&project, strat, days, dry_run)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                println!("{}", crate::consolidate::format_consolidation_result(&result));
+            }
+        }
+        Commands::Block { project, slot, title, content } => {
+            let eng_db = std::sync::Arc::new(db.clone());
+            let eng = crate::consolidate::ConsolidationEngine::new(eng_db);
+            let project = project.unwrap_or_else(Settings::infer_project);
+            match (slot, content) {
+                (Some(s), Some(c)) => {
+                    let t = title.as_deref().unwrap_or(&s);
+                    let block = eng.set_block(&project, &s, t, &c)?;
+                    println!("✅ Block '{}' saved: {}", s, block.title);
+                }
+                (Some(s), None) => {
+                    match eng.get_block(&project, &s)? {
+                        Some(block) => {
+                            println!("# Block: {} ({})\n\n", block.slot, block.title);
+                            println!("{}", block.content);
+                        }
+                        None => println!("No block '{}' for project '{}'.", s, project),
+                    }
+                }
+                (None, _) => {
+                    let blocks = eng.list_blocks(&project)?;
+                    if blocks.is_empty() {
+                        println!("No blocks for project '{}'.", project);
+                    } else {
+                        println!("Blocks for '{}':", project);
+                        for b in &blocks {
+                            println!("  [{}] {} — {} chars", b.slot, b.title, b.content.len());
+                        }
+                    }
+                }
             }
         }
         Commands::SaveBatch { file, project } => {

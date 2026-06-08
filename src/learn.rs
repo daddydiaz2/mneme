@@ -15,9 +15,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::store::db::Database;
-use crate::store::memory::{
-    CreateMemoryInput, Importance, Memory, MemoryType, Scope,
-};
+use crate::store::memory::{CreateMemoryInput, Importance, Memory, MemoryType, Scope};
 
 /// Outcome de una sesión: success o failure con razones.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -72,7 +70,9 @@ impl FailureMiner {
         user_corrections: Option<&str>,
     ) -> crate::error::Result<()> {
         let conn = self.db.get_conn();
-        let conn = conn.lock().map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+        let conn = conn
+            .lock()
+            .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
 
         let outcome_str = match &outcome {
             SessionOutcome::Success => "success",
@@ -89,7 +89,14 @@ impl FailureMiner {
                                affected_files = ?3, bugs_introduced = ?4,
                                user_corrections = ?5
              WHERE id = ?6",
-            rusqlite::params![outcome_str, reasons_json, affected_files as i64, bugs_introduced as i64, user_corrections, session_id.to_string()],
+            rusqlite::params![
+                outcome_str,
+                reasons_json,
+                affected_files as i64,
+                bugs_introduced as i64,
+                user_corrections,
+                session_id.to_string()
+            ],
         )?;
         Ok(())
     }
@@ -123,7 +130,8 @@ impl FailureMiner {
                         pattern_signals
                             .entry(r.clone())
                             .or_insert_with(|| PatternSignal::new(&r))
-                            .sessions.push(session.id);
+                            .sessions
+                            .push(session.id);
                     }
                 }
             }
@@ -132,14 +140,16 @@ impl FailureMiner {
                 pattern_signals
                     .entry("introduces_bugs".to_string())
                     .or_insert_with(|| PatternSignal::new("introduces_bugs"))
-                    .sessions.push(session.id);
+                    .sessions
+                    .push(session.id);
             }
             // Si affected_files > 5 y no bugs, signal "scope_creep"
             if session.affected_files > 5 && session.bugs_introduced == 0 {
                 pattern_signals
                     .entry("scope_creep".to_string())
                     .or_insert_with(|| PatternSignal::new("scope_creep"))
-                    .sessions.push(session.id);
+                    .sessions
+                    .push(session.id);
             }
         }
 
@@ -155,7 +165,8 @@ impl FailureMiner {
             pattern_signals
                 .entry(key.to_string())
                 .or_insert_with(|| PatternSignal::new(key))
-                .memories.push(mem.id);
+                .memories
+                .push(mem.id);
         }
 
         // 5. Generar o actualizar patterns en DB + corrective memories
@@ -187,7 +198,9 @@ impl FailureMiner {
             // Link corrective to pattern
             if let (Some(pid), Some(cid)) = (pattern_id, corrective_id) {
                 let conn = self.db.get_conn();
-                let conn = conn.lock().map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+                let conn = conn
+                    .lock()
+                    .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
                 let _ = conn.execute(
                     "UPDATE failure_patterns SET corrective_memory_id = ?1 WHERE id = ?2",
                     rusqlite::params![cid.to_string(), pid],
@@ -215,17 +228,23 @@ impl FailureMiner {
 
     fn find_failed_sessions(&self, project: &str) -> crate::error::Result<Vec<SessionFailureInfo>> {
         let conn = self.db.get_conn();
-        let conn = conn.lock().map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+        let conn = conn
+            .lock()
+            .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
         let mut stmt = conn.prepare(
             "SELECT id, outcome, failure_reasons, affected_files, bugs_introduced
              FROM sessions
              WHERE project = ?1 AND outcome = 'failure' AND ended_at IS NOT NULL
-             ORDER BY started_at DESC LIMIT 100"
+             ORDER BY started_at DESC LIMIT 100",
         )?;
         let rows = stmt.query_map(rusqlite::params![project], |row| {
             Ok(SessionFailureInfo {
                 id: uuid::Uuid::parse_str(&row.get::<_, String>(0)?).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
                 })?,
                 failure_reasons: row.get(2)?,
                 affected_files: row.get::<_, i64>(3)? as u32,
@@ -241,18 +260,24 @@ impl FailureMiner {
 
     fn count_sessions(&self, project: &str) -> crate::error::Result<u32> {
         let conn = self.db.get_conn();
-        let conn = conn.lock().map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
-        let count: u32 = conn.query_row(
-            "SELECT COUNT(*) FROM sessions WHERE project = ?1",
-            rusqlite::params![project],
-            |row| row.get(0),
-        ).unwrap_or(0);
+        let conn = conn
+            .lock()
+            .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+        let count: u32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sessions WHERE project = ?1",
+                rusqlite::params![project],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
         Ok(count)
     }
 
     fn find_not_useful_memories(&self, project: &str) -> crate::error::Result<Vec<Memory>> {
         let conn = self.db.get_conn();
-        let conn = conn.lock().map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+        let conn = conn
+            .lock()
+            .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
         // Find memories with >= 2 negative feedbacks
         let _stmt = conn.prepare(
             "SELECT m.id, m.project, m.scope, m.title, m.content, m.what, m.why, m.context, m.learned,
@@ -280,7 +305,11 @@ impl FailureMiner {
         let rows = stmt.query_map(rusqlite::params![project], |row| {
             Ok(NotUsefulRef {
                 id: uuid::Uuid::parse_str(&row.get::<_, String>(0)?).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
                 })?,
                 title: row.get(1)?,
                 content: row.get(2)?,
@@ -300,7 +329,8 @@ impl FailureMiner {
                 why: None,
                 context: None,
                 learned: None,
-                memory_type: std::str::FromStr::from_str(&r.memory_type_str).unwrap_or(MemoryType::Note),
+                memory_type: std::str::FromStr::from_str(&r.memory_type_str)
+                    .unwrap_or(MemoryType::Note),
                 importance: Importance::Medium,
                 tags: Vec::new(),
                 topic_key: None,
@@ -336,16 +366,20 @@ impl FailureMiner {
         freq: u32,
     ) -> crate::error::Result<Option<i64>> {
         let conn = self.db.get_conn();
-        let conn = conn.lock().map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+        let conn = conn
+            .lock()
+            .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
 
         let now = Utc::now().to_rfc3339();
 
         // Check if exists
-        let existing: Option<i64> = conn.query_row(
-            "SELECT id FROM failure_patterns WHERE project = ?1 AND pattern_key = ?2",
-            rusqlite::params![project, key],
-            |row| row.get(0),
-        ).ok();
+        let existing: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM failure_patterns WHERE project = ?1 AND pattern_key = ?2",
+                rusqlite::params![project, key],
+                |row| row.get(0),
+            )
+            .ok();
 
         if let Some(id) = existing {
             conn.execute(
@@ -375,14 +409,17 @@ impl FailureMiner {
         // Scope the lock so it's released before store.save (which also needs the lock).
         let already_exists: bool = {
             let conn = self.db.get_conn();
-            let conn = conn.lock().map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
+            let conn = conn
+                .lock()
+                .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
             conn.query_row(
                 "SELECT id FROM memories
                  WHERE project = ?1 AND deleted_at IS NULL
                  AND provenance LIKE ?2",
                 rusqlite::params![project, format!("learn/{}/%", pattern_key)],
                 |row| row.get::<_, String>(0),
-            ).is_ok()
+            )
+            .is_ok()
         };
 
         if already_exists {
@@ -444,7 +481,11 @@ struct PatternSignal {
 
 impl PatternSignal {
     fn new(key: &str) -> Self {
-        Self { key: key.to_string(), sessions: Vec::new(), memories: Vec::new() }
+        Self {
+            key: key.to_string(),
+            sessions: Vec::new(),
+            memories: Vec::new(),
+        }
     }
 
     fn total(&self) -> u32 {
@@ -459,12 +500,20 @@ impl PatternSignal {
 
     fn description(&self) -> String {
         match self.key.as_str() {
-            "missing_context" => "El agente no tuvo suficiente contexto al recuperar memorias".to_string(),
-            "outdated_decision" => "Decisiones arquitectónicas marcadas como outdated por feedback".to_string(),
-            "outdated_pattern" => "Patrones de código obsoletos según feedback de usuarios".to_string(),
+            "missing_context" => {
+                "El agente no tuvo suficiente contexto al recuperar memorias".to_string()
+            }
+            "outdated_decision" => {
+                "Decisiones arquitectónicas marcadas como outdated por feedback".to_string()
+            }
+            "outdated_pattern" => {
+                "Patrones de código obsoletos según feedback de usuarios".to_string()
+            }
             "outdated_convention" => "Convenciones del proyecto que ya no se aplican".to_string(),
             "outdated_architecture" => "Decisiones arquitectónicas que cambiaron".to_string(),
-            "low_quality_memory" => "Memorias con feedback negativo recurrente — revisar calidad".to_string(),
+            "low_quality_memory" => {
+                "Memorias con feedback negativo recurrente — revisar calidad".to_string()
+            }
             "introduces_bugs" => "Sesiones donde el agente introdujo bugs".to_string(),
             "scope_creep" => "Sesiones que tocaron muchos archivos sin introducir bugs".to_string(),
             _ => format!("Pattern custom: {}", self.key),
@@ -481,11 +530,26 @@ pub fn format_failure_report(report: &FailureReport) -> String {
     let mut out = String::new();
     out.push_str(&format!("# Failure Mining Report: {}\n\n", report.project));
     out.push_str("## Resumen\n\n");
-    out.push_str(&format!("- Sesiones analizadas: {}\n", report.sessions_analyzed));
-    out.push_str(&format!("- Sesiones con failure: {}\n", report.failed_sessions));
-    out.push_str(&format!("- Memorias con feedback negativo: {}\n", report.not_useful_memories));
-    out.push_str(&format!("- Patterns detectados: {}\n", report.patterns_found));
-    out.push_str(&format!("- Memorias correctivas generadas: {}\n\n", report.corrective_memories_generated));
+    out.push_str(&format!(
+        "- Sesiones analizadas: {}\n",
+        report.sessions_analyzed
+    ));
+    out.push_str(&format!(
+        "- Sesiones con failure: {}\n",
+        report.failed_sessions
+    ));
+    out.push_str(&format!(
+        "- Memorias con feedback negativo: {}\n",
+        report.not_useful_memories
+    ));
+    out.push_str(&format!(
+        "- Patterns detectados: {}\n",
+        report.patterns_found
+    ));
+    out.push_str(&format!(
+        "- Memorias correctivas generadas: {}\n\n",
+        report.corrective_memories_generated
+    ));
     if report.patterns.is_empty() {
         out.push_str("No se detectaron patterns de failure. ¡Todo bien!\n");
     } else {
@@ -496,7 +560,9 @@ pub fn format_failure_report(report: &FailureReport) -> String {
             let title = p.corrective_memory_title.as_deref().unwrap_or("-");
             out.push_str(&format!(
                 "| `{}` | {} | {:.2} | {} | {} |\n",
-                p.pattern_key, p.frequency, p.confidence,
+                p.pattern_key,
+                p.frequency,
+                p.confidence,
                 truncate_str(&p.description, 40),
                 title
             ));
@@ -506,8 +572,9 @@ pub fn format_failure_report(report: &FailureReport) -> String {
 }
 
 fn truncate_str(s: &str, max: usize) -> String {
-    if s.chars().count() <= max { s.to_string() }
-    else {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
         let t: String = s.chars().take(max.saturating_sub(1)).collect();
         format!("{}…", t)
     }
@@ -519,7 +586,8 @@ mod tests {
     use crate::store::memory::{CreateMemoryInput, Importance, MemoryType, Scope};
 
     fn make_db() -> std::sync::Arc<Database> {
-        let path = std::path::PathBuf::from(format!("/tmp/mneme_learn_test_{}.db", uuid::Uuid::new_v4()));
+        let path =
+            std::path::PathBuf::from(format!("/tmp/mneme_learn_test_{}.db", uuid::Uuid::new_v4()));
         std::sync::Arc::new(Database::open(&path).unwrap())
     }
 
@@ -595,13 +663,20 @@ mod tests {
 
         // Record a failure outcome
         let miner = FailureMiner::new(db.clone());
-        miner.record_session_outcome(
-            session.id,
-            SessionOutcome::Failure { reasons: vec!["missing_context".to_string(), "outdated_decision".to_string()] },
-            3,
-            1,
-            Some("Fixed typo in function signature"),
-        ).unwrap();
+        miner
+            .record_session_outcome(
+                session.id,
+                SessionOutcome::Failure {
+                    reasons: vec![
+                        "missing_context".to_string(),
+                        "outdated_decision".to_string(),
+                    ],
+                },
+                3,
+                1,
+                Some("Fixed typo in function signature"),
+            )
+            .unwrap();
         sessions.end(session.id, Some("test summary")).unwrap();
 
         // Mine

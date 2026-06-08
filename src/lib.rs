@@ -1,6 +1,7 @@
 pub mod bench;
-pub mod learn;
 pub mod cli;
+pub mod consolidate;
+pub mod learn;
 pub mod cloud;
 pub mod compress;
 pub mod config;

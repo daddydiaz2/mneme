@@ -169,6 +169,10 @@ pub async fn execute_tool(
         "mem_cloud_enroll" => mem_cloud_enroll(db, args, project),
         "mem_cloud_sync" => mem_cloud_sync(db, args, project),
         "mem_cloud_status" => mem_cloud_status(db, args, project),
+        "mem_consolidate" => mem_consolidate(db, args, project),
+        "mem_block_set" => mem_block_set(db, args, project),
+        "mem_block_get" => mem_block_get(db, args, project),
+        "mem_block_list" => mem_block_list(db, args, project),
         "mem_learn_failures" => mem_learn_failures(db, args, project),
         "mem_session_outcome" => mem_session_outcome(db, args, project),
         "mem_obsidian_export" => mem_obsidian_export(db, args, project),
@@ -1786,6 +1790,113 @@ fn mem_session_outcome(
     }))
 }
 
+// --- Consolidation & Memory Blocks Tools ---
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemConsolidateParams {
+    #[serde(default)]
+    project: Option<String>,
+    /// auto, age, deprecated, unused
+    #[serde(default = "default_auto")]
+    strategy: String,
+    /// Days threshold for stale memories
+    #[serde(default = "default_30")]
+    days: u64,
+    #[serde(default)]
+    dry_run: bool,
+}
+
+fn default_auto() -> String { "auto".to_string() }
+fn default_30() -> u64 { 30 }
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemBlockSetParams {
+    #[serde(default)]
+    project: Option<String>,
+    slot: String,
+    title: String,
+    content: String,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemBlockGetParams {
+    #[serde(default)]
+    project: Option<String>,
+    slot: String,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemBlockListParams {
+    #[serde(default)]
+    project: Option<String>,
+}
+
+fn mem_consolidate(
+    db: &Database,
+    args: JsonObject,
+    project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemConsolidateParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+    let project = params.project.unwrap_or_else(|| project.to_string());
+    let strat = match params.strategy.as_str() {
+        "age" => crate::consolidate::ConsolidationStrategy::Age,
+        "deprecated" => crate::consolidate::ConsolidationStrategy::Deprecated,
+        "unused" => crate::consolidate::ConsolidationStrategy::Unused,
+        _ => crate::consolidate::ConsolidationStrategy::Auto,
+    };
+    let eng = crate::consolidate::ConsolidationEngine::new(
+        std::sync::Arc::new(db.clone()),
+    );
+    let result = eng.consolidate(&project, strat, params.days, params.dry_run)?;
+    Ok(serde_json::to_value(result)?)
+}
+
+fn mem_block_set(
+    db: &Database,
+    args: JsonObject,
+    project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemBlockSetParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+    let project = params.project.unwrap_or_else(|| project.to_string());
+    let eng = crate::consolidate::ConsolidationEngine::new(
+        std::sync::Arc::new(db.clone()),
+    );
+    let block = eng.set_block(&project, &params.slot, &params.title, &params.content)?;
+    Ok(serde_json::to_value(block)?)
+}
+
+fn mem_block_get(
+    db: &Database,
+    args: JsonObject,
+    project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemBlockGetParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+    let project = params.project.unwrap_or_else(|| project.to_string());
+    let eng = crate::consolidate::ConsolidationEngine::new(
+        std::sync::Arc::new(db.clone()),
+    );
+    let block = eng.get_block(&project, &params.slot)?;
+    Ok(serde_json::to_value(block)?)
+}
+
+fn mem_block_list(
+    db: &Database,
+    args: JsonObject,
+    project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemBlockListParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+    let project = params.project.unwrap_or_else(|| project.to_string());
+    let eng = crate::consolidate::ConsolidationEngine::new(
+        std::sync::Arc::new(db.clone()),
+    );
+    let blocks = eng.list_blocks(&project)?;
+    Ok(serde_json::to_value(blocks)?)
+}
+
 // --- Obsidian Export Tools ---
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -2662,6 +2773,26 @@ pub fn list_tools(plugins: Option<&crate::plugins::PluginManager>) -> Vec<Tool> 
             "mem_cloud_status",
             "Check cloud sync status and recent sync history",
             Arc::new(schema_for_type::<MemCloudStatusParams>()),
+        ),
+        Tool::new(
+            "mem_consolidate",
+            "Consolidate stale/old/deprecated memories into auto-generated summary memories",
+            Arc::new(schema_for_type::<MemConsolidateParams>()),
+        ),
+        Tool::new(
+            "mem_block_set",
+            "Set a memory block (slot: human/persona/workflow)",
+            Arc::new(schema_for_type::<MemBlockSetParams>()),
+        ),
+        Tool::new(
+            "mem_block_get",
+            "Get a memory block by slot name",
+            Arc::new(schema_for_type::<MemBlockGetParams>()),
+        ),
+        Tool::new(
+            "mem_block_list",
+            "List all memory blocks for a project",
+            Arc::new(schema_for_type::<MemBlockListParams>()),
         ),
         Tool::new(
             "mem_learn_failures",
