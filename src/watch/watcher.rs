@@ -12,7 +12,8 @@ struct FileState {
     processed: bool,
     /// Content hash for change detection
     content_hash: u64,
-    /// Memory ID if already saved
+    /// Memory ID if already saved (reserved for future re-index flow).
+    #[allow(dead_code)]
     memory_id: Option<uuid::Uuid>,
 }
 

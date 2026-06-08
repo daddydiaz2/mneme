@@ -1485,7 +1485,9 @@ struct MemEntityExtractParams {
     id: Option<String>,
     /// Text content to extract entities from (alternative to id)
     text: Option<String>,
+    /// Optional project context for the extraction.
     #[serde(default)]
+    #[allow(dead_code)]
     project: Option<String>,
 }
 
@@ -1517,10 +1519,13 @@ struct MemEntityFrequentParams {
 fn mem_entity_extract(
     db: &Database,
     args: JsonObject,
-    _project: &str,
+    project: &str,
 ) -> crate::error::Result<serde_json::Value> {
     let params: MemEntityExtractParams = serde_json::from_value(serde_json::Value::Object(args))
         .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+
+    // Use project param for scope context (even if only used for metadata)
+    let _project = params.project.as_deref().unwrap_or(project);
 
     let entity_store = db.entities();
 

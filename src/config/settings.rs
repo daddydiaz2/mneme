@@ -143,6 +143,7 @@ pub struct EmbeddingsConfig {
     /// Habilitar búsqueda semántica.
     pub enabled: bool,
     /// Proveedor de embeddings (onnx, openai, ollama, google).
+    #[serde(default)]
     pub provider: EmbeddingProvider,
     /// Modelo de embeddings a utilizar.
     pub model: String,

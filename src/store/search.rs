@@ -57,6 +57,8 @@ impl Default for SearchEngine {
 struct RankedSignal {
     memory_id: Uuid,
     rank: usize,
+    /// Pre-computed score for debugging/logging purposes.
+    #[allow(dead_code)]
     score: f64,
 }
 
