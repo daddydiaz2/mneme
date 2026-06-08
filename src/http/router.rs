@@ -15,6 +15,7 @@ pub fn create_router(
     embeddings: Option<Arc<crate::embeddings::engine::EmbeddingEngine>>,
 ) -> Router {
     Router::new()
+        .route("/", get(handlers::dashboard))
         .route("/health", get(handlers::health))
         .route("/api/v1/memories", get(handlers::list_memories))
         .route("/api/v1/memories", post(handlers::create_memory))

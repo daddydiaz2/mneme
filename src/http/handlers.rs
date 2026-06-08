@@ -114,6 +114,18 @@ pub async fn health() -> Json<serde_json::Value> {
     Json(json!({"status": "ok", "version": env!("CARGO_PKG_VERSION")}))
 }
 
+/// Sirve la UI web del dashboard en `/`.
+/// No abre nada en el navegador automáticamente — el usuario accede manualmente a localhost:8080.
+pub async fn dashboard(
+    Extension(settings): Extension<Arc<Settings>>,
+) -> ([(axum::http::HeaderName, &'static str); 1], String) {
+    let html = crate::http::dashboard::render_dashboard(&settings.mcp.default_project);
+    (
+        [(axum::http::HeaderName::from_static("content-type"), "text/html; charset=utf-8")],
+        html,
+    )
+}
+
 // --- Memories ---
 
 /// Query params para listar memorias.
