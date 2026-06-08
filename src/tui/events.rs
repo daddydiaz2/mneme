@@ -1,130 +1,69 @@
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use std::time::Duration;
 
-use crate::tui::app::{App, Screen, Action};
+use crate::tui::app::{App, DetailTab};
 
 pub fn next_event(timeout: Duration) -> crate::error::Result<Option<Event>> {
     if event::poll(timeout).map_err(crate::error::MnemeError::Io)? {
-        let ev = event::read().map_err(crate::error::MnemeError::Io)?;
-        Ok(Some(ev))
-    } else {
-        Ok(None)
-    }
+        Ok(Some(event::read().map_err(crate::error::MnemeError::Io)?))
+    } else { Ok(None) }
 }
 
 pub fn handle_key(app: &mut App, key: KeyEvent) -> crate::error::Result<()> {
-    match app.screen {
-        // ── DASHBOARD ──
-        Screen::Dashboard => {
-            handle_key_dashboard(app, key)?;
-        }
-
-        // ── SEARCH ──
-        Screen::Search => match key.code {
-            KeyCode::Esc => app.cancel_search(),
-            KeyCode::Enter => app.confirm_search()?,
-            KeyCode::Backspace => app.pop_search_char(),
-            KeyCode::Char(c) => app.push_search_char(c),
-            _ => {}
-        },
-
-        // ── MEMORIES / PROMPTS ──
-        Screen::Memories | Screen::Prompts => match key.code {
-            KeyCode::Esc | KeyCode::Char('q') => app.screen = Screen::Dashboard,
-            KeyCode::Up | KeyCode::Char('k') => app.select_prev(),
-            KeyCode::Down | KeyCode::Char('j') => app.select_next(),
-            KeyCode::Char('g') => app.select_first(),
-            KeyCode::Char('G') => app.select_last(),
-            KeyCode::PageUp => app.page_up(),
-            KeyCode::PageDown => app.page_down(),
-            KeyCode::Char('/') => app.start_search(),
-            KeyCode::Char('r') => { app.load_memories()?; }
-            KeyCode::Char('d') => app.delete_selected()?,
-            KeyCode::Char('K') => app.detail_scroll_up(),
-            KeyCode::Char('J') => app.detail_scroll_down(),
-            KeyCode::Char('[') => app.detail_prev_tab(),
-            KeyCode::Char(']') => app.detail_next_tab(),
-            _ => {}
-        },
-
-        // ── SESSIONS ──
-        Screen::Sessions => match key.code {
-            KeyCode::Esc | KeyCode::Char('q') => app.screen = Screen::Dashboard,
-            KeyCode::Up | KeyCode::Char('k') => app.select_prev(),
-            KeyCode::Down | KeyCode::Char('j') => app.select_next(),
-            KeyCode::Enter => { if let Some(s) = app.sessions.get(app.selected) { app.view_session(s.clone()); } }
-            KeyCode::Char('r') => app.load_sessions(),
-            _ => {}
-        },
-
-        // ── SESSION DETAIL ──
-        Screen::SessionDetail => match key.code {
-            KeyCode::Esc | KeyCode::Char('q') => app.screen = Screen::Sessions,
-            _ => {}
-        },
-
-        // ── PROJECTS ──
-        Screen::Projects => match key.code {
-            KeyCode::Esc | KeyCode::Char('q') => app.screen = Screen::Dashboard,
-            KeyCode::Up | KeyCode::Char('k') => app.select_prev(),
-            KeyCode::Down | KeyCode::Char('j') => app.select_next(),
-            KeyCode::Enter => {
-                if let Some(p) = app.projects.get(app.selected) {
-                    app.project = p.name.clone();
-                    app.load_memories()?;
-                    app.screen = Screen::Dashboard;
-                }
-            }
-            KeyCode::Char('r') => { app.projects = app.db.memories().list_projects().unwrap_or_default(); }
-            _ => {}
-        },
-
-        // ── AGENT SETUP ──
-        Screen::AgentSetup => match key.code {
-            KeyCode::Esc | KeyCode::Char('q') => app.screen = Screen::Dashboard,
-            _ => {}
-        },
-
-        // ── GRAPH / ENTITY / TEMPORAL ──
-        Screen::Graph => match key.code {
-            KeyCode::Tab | KeyCode::Esc => app.screen = Screen::Dashboard,
-            KeyCode::Char('j') | KeyCode::Down => app.graph_next(),
-            KeyCode::Char('k') | KeyCode::Up => app.graph_prev(),
-            KeyCode::Char('r') => { app.load_graph()?; }
-            _ => {}
-        },
-        Screen::EntityGraph => match key.code {
-            KeyCode::Tab | KeyCode::Esc => app.screen = Screen::Dashboard,
-            KeyCode::Char('r') => { app.load_entity_graph()?; }
-            _ => {}
-        },
-        Screen::Temporal => match key.code {
-            KeyCode::Tab | KeyCode::Esc => app.screen = Screen::Dashboard,
-            KeyCode::Char('m') => app.temporal_cycle_mode(),
-            KeyCode::Char('r') => { app.load_temporal()?; }
-            _ => {}
-        },
-    }
+    handle_key_inner(app, key);
     Ok(())
 }
 
-fn handle_key_dashboard(app: &mut App, key: KeyEvent) -> crate::error::Result<()> {
+fn handle_key_inner(app: &mut App, key: KeyEvent) {
     match key.code {
-        KeyCode::Char('1') | KeyCode::Char('s') => app.execute_action(Action::Search),
-        KeyCode::Char('2') | KeyCode::Char('o') => app.execute_action(Action::RecentObservations),
-        KeyCode::Char('3') | KeyCode::Char('b') => app.execute_action(Action::BrowseSessions),
-        KeyCode::Char('4') | KeyCode::Char('p') => app.execute_action(Action::ViewPrompts),
-        KeyCode::Char('5') | KeyCode::Char('r') => app.execute_action(Action::Projects),
-        KeyCode::Char('6') | KeyCode::Char('a') => app.execute_action(Action::AgentPlugin),
-        KeyCode::Char('7') | KeyCode::Char('q') => { app.should_quit = true; Ok(()) },
-        KeyCode::Esc => { app.should_quit = true; Ok(()) },
-        KeyCode::Down | KeyCode::Char('j') => { app.selected = (app.selected + 1).min(6); Ok(()) }
-        KeyCode::Up | KeyCode::Char('k') => { app.selected = app.selected.saturating_sub(1); Ok(()) }
-        KeyCode::Enter => {
-            let action = match app.selected { 0=>Action::Search, 1=>Action::RecentObservations, 2=>Action::BrowseSessions, 3=>Action::ViewPrompts, 4=>Action::Projects, 5=>Action::AgentPlugin, _=>Action::Quit };
-            app.execute_action(action)
-        }
-        _ => Ok(()),
+        KeyCode::Char('q') => app.quit = true,
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit = true,
+        KeyCode::Esc => { app.active_panel = if app.search.is_empty() { app.active_panel } else { app.search.clear(); 0 }; },
+
+        // ── NAVIGATION ──
+        KeyCode::Down | KeyCode::Char('j') => app.down(),
+        KeyCode::Up | KeyCode::Char('k') => app.up(),
+        KeyCode::Char('g') => app.first(),
+        KeyCode::Char('G') => app.last(),
+        KeyCode::PageDown | KeyCode::Char('J') => app.pgdn(),
+        KeyCode::PageUp | KeyCode::Char('K') => app.pgup(),
+
+        // ── SEARCH ──
+        KeyCode::Char('/') => { app.search.clear(); app.active_panel = 2; }
+        KeyCode::Enter if app.active_panel == 2 => { app.active_panel = 0; app.load(); }
+        KeyCode::Backspace if app.active_panel == 2 => { app.search.pop(); }
+        KeyCode::Char(c) if app.active_panel == 2 => { app.search.push(c); },
+
+        // ── DETAIL TABS ──
+        KeyCode::Char('[') => app.tab_prev(),
+        KeyCode::Char(']') => app.tab_next(),
+        KeyCode::Right if app.active_panel == 0 => app.active_panel = 1,
+        KeyCode::Left if app.active_panel == 1 => app.active_panel = 0,
+
+        // ── SCROLL ──
+        KeyCode::Char('z') if app.active_panel == 1 => app.dscroll_down(),
+        KeyCode::Char('Z') if app.active_panel == 1 => app.dscroll_up(),
+
+        // ── ACTIONS ──
+        KeyCode::Tab => { app.load_graph(); app.active_panel = 3; }
+        KeyCode::Char('e') => { app.load_entity(); app.active_panel = 4; }
+        KeyCode::Char('t') => { app.load_temporal(); app.active_panel = 5; }
+        KeyCode::Char('r') => app.load(),
+        KeyCode::Char('d') => app.delete_sel(),
+
+        // ── GRAPH (panel 3) ──
+        KeyCode::Char('j') | KeyCode::Down if app.active_panel == 3 => app.graph_next(),
+        KeyCode::Char('k') | KeyCode::Up if app.active_panel == 3 => app.graph_prev(),
+        KeyCode::Tab if app.active_panel == 3 => app.active_panel = 0,
+
+        // ── ENTITY GRAPH (panel 4) ──
+        KeyCode::Tab if app.active_panel == 4 => app.active_panel = 0,
+
+        // ── TEMPORAL (panel 5) ──
+        KeyCode::Char('m') if app.active_panel == 5 => app.temporal_cycle(),
+        KeyCode::Tab if app.active_panel == 5 => app.active_panel = 0,
+
+        _ => {}
     }
 }
 
@@ -135,17 +74,18 @@ mod tests {
     use crate::store::db::Database;
     use std::path::PathBuf;
     use std::sync::Arc;
-    fn setup_db() -> Arc<Database> { Arc::new(Database::open(&PathBuf::from(format!("/tmp/mneme_tui_test_{}.db", uuid::Uuid::new_v4()))).unwrap()) }
-    fn make_app() -> App { App::new(setup_db(), Arc::new(Settings::default())).unwrap() }
-    fn key(k: KeyCode) -> KeyEvent { KeyEvent::new(k, KeyModifiers::empty()) }
-    #[test] fn test_q_quits() { let mut app = make_app(); handle_key(&mut app, key(KeyCode::Char('q'))).unwrap(); assert!(app.should_quit); }
-    #[test] fn test_esc_quits() { let mut app = make_app(); handle_key(&mut app, key(KeyCode::Esc)).unwrap(); assert!(app.should_quit); }
-    #[test] fn test_s_opens_search() { let mut app = make_app(); handle_key(&mut app, key(KeyCode::Char('s'))).unwrap(); assert!(matches!(app.screen, Screen::Search)); }
-    #[test] fn test_2_recent() { let mut app = make_app(); handle_key(&mut app, key(KeyCode::Char('2'))).unwrap(); assert!(matches!(app.screen, Screen::Memories)); }
-    #[test] fn test_3_sessions() { let mut app = make_app(); handle_key(&mut app, key(KeyCode::Char('3'))).unwrap(); assert!(matches!(app.screen, Screen::Sessions)); }
-    #[test] fn test_4_prompts() { let mut app = make_app(); handle_key(&mut app, key(KeyCode::Char('4'))).unwrap(); assert!(matches!(app.screen, Screen::Prompts)); }
-    #[test] fn test_5_projects() { let mut app = make_app(); handle_key(&mut app, key(KeyCode::Char('5'))).unwrap(); assert!(matches!(app.screen, Screen::Projects)); }
-    #[test] fn test_agent_setup() { let mut app = make_app(); handle_key(&mut app, key(KeyCode::Char('6'))).unwrap(); assert!(matches!(app.screen, Screen::AgentSetup)); }
-    #[test] fn test_enter_on_sessions() { let mut app = make_app(); app.screen = Screen::Sessions; /* no crash */ handle_key(&mut app, key(KeyCode::Enter)).unwrap(); }
-    #[test] fn test_search_input() { let mut app = make_app(); app.screen = Screen::Search; handle_key(&mut app, key(KeyCode::Char('r'))).unwrap(); assert_eq!(app.search_query, "r"); }
+
+    fn make() -> App {
+        let p = PathBuf::from(format!("/tmp/mneme_tui_test_{}.db", uuid::Uuid::new_v4()));
+        let db = Arc::new(Database::open(&p).unwrap());
+        App::new(db, Arc::new(Settings::default()))
+    }
+    fn k(c: KeyCode) -> KeyEvent { KeyEvent::new(c, KeyModifiers::empty()) }
+
+    #[test] fn q_quits() { let mut a = make(); handle_key(&mut a, k(KeyCode::Char('q'))).ok(); assert!(a.quit); }
+    #[test] fn j_down() { let mut a = make(); handle_key(&mut a, k(KeyCode::Char('j'))).ok(); assert_eq!(a.selected, 0); }
+    #[test] fn slash_search() { let mut a = make(); handle_key(&mut a, k(KeyCode::Char('/'))).ok(); assert_eq!(a.active_panel, 2); }
+    #[test] fn bracket_tabs() { let mut a = make(); handle_key(&mut a, k(KeyCode::Char(']'))).ok(); assert_eq!(a.detail_tab, DetailTab::Structured); }
+    #[test] fn r_reload() { let mut a = make(); handle_key(&mut a, k(KeyCode::Char('r'))).ok(); }
+    #[test] fn scrollers() { let mut a = make(); handle_key(&mut a, k(KeyCode::Char('g'))).ok(); handle_key(&mut a, k(KeyCode::Char('G'))).ok(); }
 }

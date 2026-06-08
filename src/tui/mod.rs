@@ -24,8 +24,8 @@ pub fn run_tui(
     let mut terminal =
         Terminal::new(backend).map_err(|e| crate::error::MnemeError::Config(e.to_string()))?;
 
-    let mut app = app::App::new(db, settings)?;
-    app.load_memories()?;
+    let mut app = app::App::new(db, settings);
+    app.load();
 
     let result = run_loop(&mut terminal, &mut app);
 
@@ -52,7 +52,7 @@ fn run_loop(
             events::handle_key(app, key)?;
         }
 
-        if app.should_quit {
+        if app.quit {
             break;
         }
     }
