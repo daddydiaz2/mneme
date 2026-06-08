@@ -208,6 +208,15 @@ pub enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Ejecuta un benchmark de retrieval quality.
+    Bench {
+        /// Archivo de escenario (TOML/JSON). Si no se da, usa el ejemplo 'rust-decisions'.
+        #[arg(long, short = 's')]
+        scenario: Option<String>,
+        /// Salida en JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Guarda un lote de memorias desde un archivo JSON.
     SaveBatch {
         /// Archivo JSON con el lote de memorias.
@@ -786,6 +795,20 @@ pub fn run_command(
                     output::print_error("Embeddings engine not available");
                     std::process::exit(1);
                 }
+            }
+        }
+        Commands::Bench { scenario, json } => {
+            let bench_db = std::sync::Arc::new(db.clone());
+            let runner = crate::bench::BenchmarkRunner::new(bench_db);
+            let scenario_obj = match scenario {
+                Some(path) => runner.load_scenario(std::path::Path::new(&path))?,
+                None => crate::bench::example_rust_scenario(),
+            };
+            let result = runner.run(&scenario_obj)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                println!("{}", crate::bench::format_report(&result));
             }
         }
         Commands::SaveBatch { file, project } => {

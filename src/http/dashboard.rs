@@ -7,6 +7,7 @@ pub const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>mneme — Memory Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.ico">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -263,7 +264,6 @@ pub const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
                 const [stats, projects, peers, conflictResp] = await Promise.all([
                     fetch(`${API}/api/v1/stats?project=${PROJECT}`).then(r => r.json()).catch(() => null),
                     fetch(`${API}/api/v1/projects`).then(r => r.json()).catch(() => []),
-                    fetch(`${API}/api/v1/sync/status?project=${PROJECT}`).then(r => r.json()).catch(() => null),
                     fetch(`${API}/api/v1/cloud/status?project=${PROJECT}`).then(r => r.json()).catch(() => null)
                 ]);
 

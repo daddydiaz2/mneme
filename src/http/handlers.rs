@@ -126,6 +126,16 @@ pub async fn dashboard(
     )
 }
 
+/// Sirve un favicon SVG inline (cerebro emoji + fondo oscuro) para `/favicon.ico`.
+/// Evita el 404 que muchos browsers piden automáticamente.
+pub async fn favicon() -> ([(axum::http::HeaderName, &'static str); 1], &'static str) {
+    const FAVICON_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="#0d1117"/><text x="50" y="68" font-size="60" text-anchor="middle">🧠</text></svg>"##;
+    (
+        [(axum::http::HeaderName::from_static("content-type"), "image/svg+xml; charset=utf-8")],
+        FAVICON_SVG,
+    )
+}
+
 // --- Memories ---
 
 /// Query params para listar memorias.

@@ -16,6 +16,7 @@ pub fn create_router(
 ) -> Router {
     Router::new()
         .route("/", get(handlers::dashboard))
+        .route("/favicon.ico", get(handlers::favicon))
         .route("/health", get(handlers::health))
         .route("/api/v1/memories", get(handlers::list_memories))
         .route("/api/v1/memories", post(handlers::create_memory))
