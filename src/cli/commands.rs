@@ -217,6 +217,15 @@ pub enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Minería de failures — analiza sesiones fallidas y genera memorias correctivas.
+    Learn {
+        /// Proyecto.
+        #[arg(long, short = 'p', env = "MNEME_PROJECT")]
+        project: Option<String>,
+        /// Salida en JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Guarda un lote de memorias desde un archivo JSON.
     SaveBatch {
         /// Archivo JSON con el lote de memorias.
@@ -809,6 +818,17 @@ pub fn run_command(
                 println!("{}", serde_json::to_string_pretty(&result)?);
             } else {
                 println!("{}", crate::bench::format_report(&result));
+            }
+        }
+        Commands::Learn { project, json } => {
+            let learn_db = std::sync::Arc::new(db.clone());
+            let miner = crate::learn::FailureMiner::new(learn_db);
+            let project = project.unwrap_or_else(Settings::infer_project);
+            let report = miner.mine(&project)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("{}", crate::learn::format_failure_report(&report));
             }
         }
         Commands::SaveBatch { file, project } => {

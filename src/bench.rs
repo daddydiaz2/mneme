@@ -57,7 +57,9 @@ pub struct BenchmarkQuery {
     pub k: u32,
 }
 
-fn default_k() -> u32 { 5 }
+fn default_k() -> u32 {
+    5
+}
 
 /// Resultados de un escenario ejecutado.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,12 +136,14 @@ impl BenchmarkRunner {
         let _ = memories.forget_project(&project);
 
         for seed in &scenario.seed_memories {
-            let memory_type = seed.memory_type.parse().unwrap_or(
-                crate::store::memory::MemoryType::Note,
-            );
-            let importance = seed.importance.parse().unwrap_or(
-                crate::store::memory::Importance::Medium,
-            );
+            let memory_type = seed
+                .memory_type
+                .parse()
+                .unwrap_or(crate::store::memory::MemoryType::Note);
+            let importance = seed
+                .importance
+                .parse()
+                .unwrap_or(crate::store::memory::Importance::Medium);
             let input = CreateMemoryInput {
                 project: project.clone(),
                 scope: Some(Scope::Project),
@@ -189,17 +193,21 @@ impl BenchmarkRunner {
             let results = memories.search(&search_query, &weights, None)?;
             let latency_ms = start.elapsed().as_millis() as u64;
 
-            let top_titles: Vec<String> = results.iter().take(k as usize).map(|r| r.memory.title.clone()).collect();
+            let top_titles: Vec<String> = results
+                .iter()
+                .take(k as usize)
+                .map(|r| r.memory.title.clone())
+                .collect();
 
             // Calcular relevance
             let mut relevant_found = 0u32;
             let mut reciprocal_rank = 0.0;
             for (idx, r) in results.iter().take(k as usize).enumerate() {
                 let title = &r.memory.title;
-                let is_relevant = q.expected_titles.iter().any(|t| t == title) ||
-                    q.expected_keywords.iter().any(|kw| {
-                        r.memory.content.to_lowercase().contains(&kw.to_lowercase()) ||
-                        r.memory.title.to_lowercase().contains(&kw.to_lowercase())
+                let is_relevant = q.expected_titles.iter().any(|t| t == title)
+                    || q.expected_keywords.iter().any(|kw| {
+                        r.memory.content.to_lowercase().contains(&kw.to_lowercase())
+                            || r.memory.title.to_lowercase().contains(&kw.to_lowercase())
                     });
                 if is_relevant {
                     relevant_found += 1;
@@ -215,7 +223,11 @@ impl BenchmarkRunner {
                 q.expected_titles.len().max(q.expected_keywords.len()) as u32
             };
 
-            let precision = if k > 0 { relevant_found as f64 / k as f64 } else { 0.0 };
+            let precision = if k > 0 {
+                relevant_found as f64 / k as f64
+            } else {
+                0.0
+            };
             let recall = if total_relevant > 0 {
                 relevant_found as f64 / total_relevant as f64
             } else if relevant_found > 0 {
@@ -233,7 +245,9 @@ impl BenchmarkRunner {
             sum_mrr += reciprocal_rank;
             sum_precision += precision;
             sum_recall += recall;
-            if hit { sum_hit += 1; }
+            if hit {
+                sum_hit += 1;
+            }
             sum_f1 += f1;
             sum_latency += latency_ms;
 
@@ -259,7 +273,11 @@ impl BenchmarkRunner {
                 recall_at_k: sum_recall / total,
                 hit_rate: sum_hit as f64 / total,
                 f1_at_k: sum_f1 / total,
-                avg_latency_ms: if total > 0.0 { sum_latency as f64 / total } else { 0.0 },
+                avg_latency_ms: if total > 0.0 {
+                    sum_latency as f64 / total
+                } else {
+                    0.0
+                },
             }
         } else {
             BenchmarkMetrics::default()
@@ -276,7 +294,6 @@ impl BenchmarkRunner {
 
 /// Genera un escenario de benchmark de ejemplo para Rust.
 pub fn example_rust_scenario() -> BenchmarkScenario {
-    
     BenchmarkScenario {
         name: "rust-decisions".to_string(),
         description: Some("Evalúa retrieval de decisiones arquitectónicas sobre Rust".to_string()),
@@ -366,11 +383,23 @@ pub fn format_report(result: &BenchmarkResult) -> String {
     out.push_str("## Métricas agregadas\n\n");
     out.push_str("| Métrica | Valor |\n|---------|-------|\n");
     out.push_str(&format!("| MRR @ k | {:.4} |\n", result.metrics.mrr));
-    out.push_str(&format!("| Precision @ k | {:.4} |\n", result.metrics.precision_at_k));
-    out.push_str(&format!("| Recall @ k | {:.4} |\n", result.metrics.recall_at_k));
-    out.push_str(&format!("| Hit Rate @ k | {:.4} |\n", result.metrics.hit_rate));
+    out.push_str(&format!(
+        "| Precision @ k | {:.4} |\n",
+        result.metrics.precision_at_k
+    ));
+    out.push_str(&format!(
+        "| Recall @ k | {:.4} |\n",
+        result.metrics.recall_at_k
+    ));
+    out.push_str(&format!(
+        "| Hit Rate @ k | {:.4} |\n",
+        result.metrics.hit_rate
+    ));
     out.push_str(&format!("| F1 @ k | {:.4} |\n", result.metrics.f1_at_k));
-    out.push_str(&format!("| Avg latency (ms) | {:.2} |\n", result.metrics.avg_latency_ms));
+    out.push_str(&format!(
+        "| Avg latency (ms) | {:.2} |\n",
+        result.metrics.avg_latency_ms
+    ));
     out.push_str("\n## Per-query\n\n");
     out.push_str("| Query | k | Rel/Total | P | R | F1 | MRR | Hit | Latency |\n");
     out.push_str("|-------|---|-----------|---|---|---|-----|-----|---------|\n");
@@ -436,7 +465,14 @@ mod tests {
         let result = BenchmarkResult {
             scenario_name: "test".to_string(),
             total_queries: 2,
-            metrics: BenchmarkMetrics { mrr: 0.5, precision_at_k: 0.6, recall_at_k: 0.7, hit_rate: 0.5, f1_at_k: 0.65, avg_latency_ms: 5.0 },
+            metrics: BenchmarkMetrics {
+                mrr: 0.5,
+                precision_at_k: 0.6,
+                recall_at_k: 0.7,
+                hit_rate: 0.5,
+                f1_at_k: 0.65,
+                avg_latency_ms: 5.0,
+            },
             per_query: vec![],
         };
         let report = format_report(&result);

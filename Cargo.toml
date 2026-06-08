@@ -69,7 +69,10 @@ age = { version = "0.10", features = ["ssh"] }
 # Sync
 automerge = "0.5"
 zstd = "0.13"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+reqwest = { version = "0.12", features = [
+  "json",
+  "rustls-tls",
+], default-features = false }
 hostname = "0.4"
 hex = "0.4"
 

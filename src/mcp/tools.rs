@@ -169,6 +169,8 @@ pub async fn execute_tool(
         "mem_cloud_enroll" => mem_cloud_enroll(db, args, project),
         "mem_cloud_sync" => mem_cloud_sync(db, args, project),
         "mem_cloud_status" => mem_cloud_status(db, args, project),
+        "mem_learn_failures" => mem_learn_failures(db, args, project),
+        "mem_session_outcome" => mem_session_outcome(db, args, project),
         "mem_obsidian_export" => mem_obsidian_export(db, args, project),
         "mem_watch_scan" => mem_watch_scan(db, args, project),
         "mem_compress" => mem_compress(db, args, project),
@@ -1698,6 +1700,92 @@ fn mem_cloud_status(
     orch.cloud_status(&project)
 }
 
+// --- Failure Mining Tools ---
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemLearnParams {
+    #[serde(default)]
+    project: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct MemSessionOutcomeParams {
+    /// ID of the session
+    session_id: String,
+    /// Outcome: "success", "partial", or "failure"
+    outcome: String,
+    /// Comma-separated failure reasons (only for failure outcome)
+    #[serde(default)]
+    failure_reasons: Option<String>,
+    /// Number of files affected
+    #[serde(default)]
+    affected_files: u32,
+    /// Number of bugs introduced (only for failure outcome)
+    #[serde(default)]
+    bugs_introduced: u32,
+    /// Description of user corrections (if any)
+    #[serde(default)]
+    user_corrections: Option<String>,
+}
+
+fn mem_learn_failures(
+    db: &Database,
+    args: JsonObject,
+    project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemLearnParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+    let learn_db = std::sync::Arc::new(db.clone());
+    let miner = crate::learn::FailureMiner::new(learn_db);
+    let project = params.project.unwrap_or_else(|| project.to_string());
+    let report = miner.mine(&project)?;
+    Ok(serde_json::to_value(report)?)
+}
+
+fn mem_session_outcome(
+    db: &Database,
+    args: JsonObject,
+    _project: &str,
+) -> crate::error::Result<serde_json::Value> {
+    let params: MemSessionOutcomeParams = serde_json::from_value(serde_json::Value::Object(args))
+        .map_err(|e| crate::error::MnemeError::Config(format!("Invalid params: {}", e)))?;
+
+    let session_id = uuid::Uuid::parse_str(&params.session_id)
+        .map_err(|e| crate::error::MnemeError::Config(e.to_string()))?;
+
+    let outcome = match params.outcome.as_str() {
+        "success" => crate::learn::SessionOutcome::Success,
+        "partial" => crate::learn::SessionOutcome::PartialSuccess,
+        "failure" => {
+            let reasons: Vec<String> = params
+                .failure_reasons
+                .as_deref()
+                .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
+                .unwrap_or_default();
+            crate::learn::SessionOutcome::Failure { reasons }
+        }
+        _ => return Err(crate::error::MnemeError::Config(
+            format!("Invalid outcome '{}'. Must be: success, partial, failure", params.outcome)
+        )),
+    };
+
+    let learn_db = std::sync::Arc::new(db.clone());
+    let miner = crate::learn::FailureMiner::new(learn_db);
+    miner.record_session_outcome(
+        session_id,
+        outcome,
+        params.affected_files,
+        params.bugs_introduced,
+        params.user_corrections.as_deref(),
+    )?;
+
+    Ok(json!({
+        "session_id": params.session_id,
+        "outcome": params.outcome,
+        "recorded": true
+    }))
+}
+
 // --- Obsidian Export Tools ---
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -2574,6 +2662,16 @@ pub fn list_tools(plugins: Option<&crate::plugins::PluginManager>) -> Vec<Tool> 
             "mem_cloud_status",
             "Check cloud sync status and recent sync history",
             Arc::new(schema_for_type::<MemCloudStatusParams>()),
+        ),
+        Tool::new(
+            "mem_learn_failures",
+            "Analyze failed sessions and negative feedback to mine failure patterns and auto-generate corrective memories",
+            Arc::new(schema_for_type::<MemLearnParams>()),
+        ),
+        Tool::new(
+            "mem_session_outcome",
+            "Record the outcome of a session (success/partial/failure with reasons)",
+            Arc::new(schema_for_type::<MemSessionOutcomeParams>()),
         ),
         Tool::new(
             "mem_obsidian_export",
