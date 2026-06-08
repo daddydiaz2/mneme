@@ -63,7 +63,7 @@ async fn test_mcp_mem_save_returns_valid_json() {
     let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(parsed["success"], true);
     assert!(parsed["data"].is_object());
-    assert_eq!(parsed["meta"]["version"], "0.1.0");
+    assert_eq!(parsed["meta"]["version"], "0.2.0");
 }
 
 #[tokio::test]

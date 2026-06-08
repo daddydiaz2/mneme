@@ -8,9 +8,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::store::db::Database;
-use crate::store::memory::{
-    CreateMemoryInput, Importance, Memory, MemoryType, Scope,
-};
+use crate::store::memory::{CreateMemoryInput, Importance, Memory, MemoryType, Scope};
 
 /// Resultado de una corrida de consolidación.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -87,7 +85,8 @@ impl ConsolidationEngine {
 
         // 1. Find candidates
         let candidates: Vec<Memory> = {
-            let conn_guard = conn.lock()
+            let conn_guard = conn
+                .lock()
                 .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
             let (where_clause, note) = match strategy {
                 ConsolidationStrategy::Age => ("(m.updated_at < ?1 OR m.last_accessed_at < ?1)", "by age"),
@@ -110,11 +109,12 @@ impl ConsolidationEngine {
                 where_clause
             );
             let mut stmt = conn_guard.prepare(&sql)?;
-            let params: Vec<Box<dyn rusqlite::ToSql>> = if strategy == ConsolidationStrategy::Deprecated {
-                vec![Box::new(project.to_string())]
-            } else {
-                vec![Box::new(cutoff_str.clone()), Box::new(project.to_string())]
-            };
+            let params: Vec<Box<dyn rusqlite::ToSql>> =
+                if strategy == ConsolidationStrategy::Deprecated {
+                    vec![Box::new(project.to_string())]
+                } else {
+                    vec![Box::new(cutoff_str.clone()), Box::new(project.to_string())]
+                };
             let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
             let rows = stmt.query_map(param_refs.as_slice(), |row| {
                 crate::store::memory::MemoryStore::row_to_memory(row)
@@ -126,7 +126,9 @@ impl ConsolidationEngine {
             }
             result.total_analyzed = mems.len() as u32;
             if !mems.is_empty() {
-                result.details.push(format!("Found {} candidates {}", mems.len(), note));
+                result
+                    .details
+                    .push(format!("Found {} candidates {}", mems.len(), note));
             }
             mems
         };
@@ -151,11 +153,18 @@ impl ConsolidationEngine {
                 title: summary_title.clone(),
                 content: summary_content,
                 what: Some(format!("Consolidated {} stale memories", candidates.len())),
-                why: Some(format!("Strategy: {}, threshold: {} days", strategy, days_threshold)),
+                why: Some(format!(
+                    "Strategy: {}, threshold: {} days",
+                    strategy, days_threshold
+                )),
                 context: None,
                 learned: Some(format!(
                     "Memories consolidated: {}",
-                    candidates.iter().map(|m| m.title.as_str()).collect::<Vec<_>>().join(", ")
+                    candidates
+                        .iter()
+                        .map(|m| m.title.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )),
                 memory_type: MemoryType::Note,
                 importance: Importance::Low,
@@ -165,7 +174,11 @@ impl ConsolidationEngine {
                 encrypt: false,
                 valid_from: None,
                 valid_until: None,
-                provenance: Some(format!("consolidation/{}/{}", strategy, Utc::now().to_rfc3339())),
+                provenance: Some(format!(
+                    "consolidation/{}/{}",
+                    strategy,
+                    Utc::now().to_rfc3339()
+                )),
             };
             let summary = store.save(input, None, None)?;
             result.summary_memory_title = Some(summary.title);
@@ -183,9 +196,13 @@ impl ConsolidationEngine {
             // 4. Log the consolidation
             let rationale = format!(
                 "Consolidation of {} memories using {} strategy ({}d threshold). {} removed.",
-                candidates.len(), strategy, days_threshold, result.total_removed
+                candidates.len(),
+                strategy,
+                days_threshold,
+                result.total_removed
             );
-            let conn_guard2 = conn.lock()
+            let conn_guard2 = conn
+                .lock()
                 .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
             conn_guard2.execute(
                 "INSERT INTO consolidation_log (project, run_at, total_consolidated, total_removed, summary_memory_id, strategy, rationale)
@@ -203,7 +220,10 @@ impl ConsolidationEngine {
             result.details.push(rationale);
         } else {
             result.total_consolidated = candidates.len() as u32;
-            result.details.push(format!("[dry-run] Would consolidate {} memories", candidates.len()));
+            result.details.push(format!(
+                "[dry-run] Would consolidate {} memories",
+                candidates.len()
+            ));
         }
 
         Ok(result)
@@ -215,7 +235,8 @@ impl ConsolidationEngine {
         parts.push(format!("Total memories: {}\n", candidates.len()));
 
         // By type
-        let mut by_type: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+        let mut by_type: std::collections::BTreeMap<String, u32> =
+            std::collections::BTreeMap::new();
         for m in candidates {
             *by_type.entry(m.memory_type.to_string()).or_insert(0) += 1;
         }
@@ -228,10 +249,17 @@ impl ConsolidationEngine {
         for m in candidates {
             let age = Utc::now().signed_duration_since(m.updated_at).num_days();
             let access = m.access_count;
-            let deprecated = if m.deprecated_at.is_some() { " [DEPRECATED]" } else { "" };
+            let deprecated = if m.deprecated_at.is_some() {
+                " [DEPRECATED]"
+            } else {
+                ""
+            };
             parts.push(format!(
                 "- {} ({}d ago, {} accesses){}: {}",
-                m.title, age, access, deprecated,
+                m.title,
+                age,
+                access,
+                deprecated,
                 m.content.chars().take(80).collect::<String>()
             ));
         }
@@ -239,9 +267,14 @@ impl ConsolidationEngine {
     }
 
     /// Gets the consolidation log for a project.
-    pub fn get_log(&self, project: &str, limit: u32) -> crate::error::Result<Vec<serde_json::Value>> {
+    pub fn get_log(
+        &self,
+        project: &str,
+        limit: u32,
+    ) -> crate::error::Result<Vec<serde_json::Value>> {
         let conn = self.db.get_conn();
-        let conn = conn.lock()
+        let conn = conn
+            .lock()
             .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
         let mut stmt = conn.prepare(
             "SELECT run_at, total_consolidated, total_removed, summary_memory_id, strategy, rationale
@@ -296,12 +329,19 @@ impl ConsolidationEngine {
         let memory = store.save(input, None, None)?;
 
         let conn = self.db.get_conn();
-        let conn = conn.lock()
+        let conn = conn
+            .lock()
             .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
         conn.execute(
             "INSERT OR REPLACE INTO memory_blocks (project, slot, memory_id, title, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![project, slot, memory.id.to_string(), title, Utc::now().to_rfc3339()],
+            rusqlite::params![
+                project,
+                slot,
+                memory.id.to_string(),
+                title,
+                Utc::now().to_rfc3339()
+            ],
         )?;
         let id = conn.last_insert_rowid();
 
@@ -316,9 +356,14 @@ impl ConsolidationEngine {
         })
     }
 
-    pub fn get_block(&self, project: &str, slot: &str) -> crate::error::Result<Option<MemoryBlock>> {
+    pub fn get_block(
+        &self,
+        project: &str,
+        slot: &str,
+    ) -> crate::error::Result<Option<MemoryBlock>> {
         let conn = self.db.get_conn();
-        let conn = conn.lock()
+        let conn = conn
+            .lock()
             .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
         let result = conn.query_row(
             "SELECT mb.id, mb.project, mb.slot, mb.memory_id, mb.title, mb.updated_at, m.content
@@ -349,14 +394,15 @@ impl ConsolidationEngine {
 
     pub fn list_blocks(&self, project: &str) -> crate::error::Result<Vec<MemoryBlock>> {
         let conn = self.db.get_conn();
-        let conn = conn.lock()
+        let conn = conn
+            .lock()
             .map_err(|_| crate::error::MnemeError::Config("mutex poisoned".into()))?;
         let mut stmt = conn.prepare(
             "SELECT mb.id, mb.project, mb.slot, mb.memory_id, mb.title, mb.updated_at, m.content
              FROM memory_blocks mb
              JOIN memories m ON m.id = mb.memory_id
              WHERE mb.project = ?1 AND m.deleted_at IS NULL
-             ORDER BY mb.slot"
+             ORDER BY mb.slot",
         )?;
         let rows = stmt.query_map(rusqlite::params![project], |row| {
             let updated_at_str: String = row.get(5)?;
@@ -404,7 +450,10 @@ mod tests {
     use super::*;
 
     fn make_db() -> std::sync::Arc<Database> {
-        let path = std::path::PathBuf::from(format!("/tmp/mneme_consolidate_test_{}.db", uuid::Uuid::new_v4()));
+        let path = std::path::PathBuf::from(format!(
+            "/tmp/mneme_consolidate_test_{}.db",
+            uuid::Uuid::new_v4()
+        ));
         std::sync::Arc::new(Database::open(&path).unwrap())
     }
 
@@ -412,7 +461,9 @@ mod tests {
     fn test_consolidation_empty_project() {
         let db = make_db();
         let eng = ConsolidationEngine::new(db);
-        let result = eng.consolidate("nonexistent", ConsolidationStrategy::Auto, 30, false).unwrap();
+        let result = eng
+            .consolidate("nonexistent", ConsolidationStrategy::Auto, 30, false)
+            .unwrap();
         assert_eq!(result.total_analyzed, 0);
         assert_eq!(result.total_consolidated, 0);
     }
@@ -421,7 +472,9 @@ mod tests {
     fn test_consolidation_dry_run_on_empty() {
         let db = make_db();
         let eng = ConsolidationEngine::new(db);
-        let result = eng.consolidate("empty", ConsolidationStrategy::Age, 7, true).unwrap();
+        let result = eng
+            .consolidate("empty", ConsolidationStrategy::Age, 7, true)
+            .unwrap();
         assert_eq!(result.total_analyzed, 0);
     }
 
@@ -429,7 +482,14 @@ mod tests {
     fn test_memory_block_set_and_get() {
         let db = make_db();
         let eng = ConsolidationEngine::new(db);
-        let block = eng.set_block("test-proj", "human", "User Identity", "I am Daniel, a Rust developer.").unwrap();
+        let block = eng
+            .set_block(
+                "test-proj",
+                "human",
+                "User Identity",
+                "I am Daniel, a Rust developer.",
+            )
+            .unwrap();
         assert_eq!(block.slot, "human");
         assert_eq!(block.title, "User Identity");
         assert!(block.memory_id.len() > 10);
@@ -451,8 +511,10 @@ mod tests {
     fn test_memory_block_list() {
         let db = make_db();
         let eng = ConsolidationEngine::new(db);
-        eng.set_block("proj1", "human", "User", "I am user").unwrap();
-        eng.set_block("proj1", "persona", "Assistant", "I am assistant").unwrap();
+        eng.set_block("proj1", "human", "User", "I am user")
+            .unwrap();
+        eng.set_block("proj1", "persona", "Assistant", "I am assistant")
+            .unwrap();
         let blocks = eng.list_blocks("proj1").unwrap();
         assert_eq!(blocks.len(), 2);
     }
