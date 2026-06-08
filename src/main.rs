@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use clap::Parser;
+use tokio::signal;
 use tracing::info;
 
 use mneme::cli::commands::{Cli, Commands};
@@ -121,7 +122,19 @@ async fn main() -> anyhow::Result<()> {
             let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
             info!("Starting HTTP server on {}", addr);
             let listener = tokio::net::TcpListener::bind(addr).await?;
-            axum::serve(listener, router).await?;
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async {
+                    signal::ctrl_c().await.ok();
+                    #[cfg(unix)]
+                    {
+                        let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate()).ok();
+                        if let Some(ref mut sigterm) = sigterm {
+                            let _ = sigterm.recv().await;
+                        }
+                    }
+                    info!("Shutting down HTTP server gracefully");
+                })
+                .await?;
         }
         Commands::Tui => {
             let settings_arc = Arc::new(settings.clone());

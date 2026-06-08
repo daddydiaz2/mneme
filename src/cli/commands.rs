@@ -259,6 +259,22 @@ pub enum Commands {
         #[arg(long)]
         content: Option<String>,
     },
+    /// Genera scripts de autocompletado para la shell.
+    Completion {
+        /// Shell objetivo: bash, zsh, fish, powershell.
+        shell: String,
+    },
+    /// Exporta la base de datos completa a un archivo.
+    DbExport {
+        /// Ruta de salida.
+        #[arg(long, short = 'o')]
+        output: Option<String>,
+    },
+    /// Importa una base de datos desde un archivo.
+    DbImport {
+        /// Archivo a importar.
+        file: String,
+    },
     /// Guarda un lote de memorias desde un archivo JSON.
     SaveBatch {
         /// Archivo JSON con el lote de memorias.
@@ -912,6 +928,42 @@ pub fn run_command(
                     }
                 }
             }
+        }
+        Commands::Completion { shell } => {
+            use clap::CommandFactory;
+            let cmd = Cli::command();
+            let shell_enum = match shell.as_str() {
+                "bash" => clap_complete::Shell::Bash,
+                "zsh" => clap_complete::Shell::Zsh,
+                "fish" => clap_complete::Shell::Fish,
+                "powershell" => clap_complete::Shell::PowerShell,
+                _ => {
+                    eprintln!("Unsupported shell: {}. Use: bash, zsh, fish, powershell", shell);
+                    std::process::exit(1);
+                }
+            };
+            clap_complete::generate(shell_enum, &mut cmd.clone(), "mneme", &mut std::io::stdout());
+        }
+        Commands::DbExport { output } => {
+            let output_path = output.unwrap_or_else(|| {
+                let date = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+                format!("mneme-backup-{}.db", date)
+            });
+            let db_path = &crate::config::settings::Settings::load()?.database.path;
+            std::fs::copy(db_path, &output_path)
+                .map_err(|e| crate::error::MnemeError::Io(e))?;
+            println!("✅ Exported database to {}", output_path);
+        }
+        Commands::DbImport { file } => {
+            let db_path = &crate::config::settings::Settings::load()?.database.path;
+            let backup_path = format!("{}.pre-import", db_path.display());
+            std::fs::copy(db_path, &backup_path)
+                .map_err(|e| crate::error::MnemeError::Io(e))?;
+            std::fs::copy(&file, db_path)
+                .map_err(|e| crate::error::MnemeError::Io(e))?;
+            println!("✅ Imported database from {}", file);
+            println!("   Backup of old DB at {}", backup_path);
+            println!("   Restart mneme to use the new database.");
         }
         Commands::SaveBatch { file, project } => {
             let project = project.unwrap_or_else(Settings::infer_project);

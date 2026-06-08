@@ -33,7 +33,9 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> crate::error::Result<()> {
         },
 
         // ── HELP ──
-        AppMode::Help => { app.toggle_help(); }
+        AppMode::Help => {
+            app.toggle_help();
+        }
 
         // ── GRAFO DE RELACIONES ──
         AppMode::Graph => match key.code {
@@ -119,57 +121,72 @@ mod tests {
         let s = Arc::new(Settings::default());
         App::new(db, s).unwrap()
     }
-    fn key(kc: KeyCode) -> KeyEvent { KeyEvent::new(kc, KeyModifiers::empty()) }
+    fn key(kc: KeyCode) -> KeyEvent {
+        KeyEvent::new(kc, KeyModifiers::empty())
+    }
 
-    #[test] fn test_q_quits() {
+    #[test]
+    fn test_q_quits() {
         let mut app = make_app(setup_db());
         handle_key(&mut app, key(KeyCode::Char('q'))).unwrap();
         assert!(app.should_quit);
     }
-    #[test] fn test_slash_starts_search() {
+    #[test]
+    fn test_slash_starts_search() {
         let mut app = make_app(setup_db());
         handle_key(&mut app, key(KeyCode::Char('/'))).unwrap();
         assert!(matches!(app.mode, AppMode::Searching));
     }
-    #[test] fn test_question_starts_help() {
+    #[test]
+    fn test_question_starts_help() {
         let mut app = make_app(setup_db());
         handle_key(&mut app, key(KeyCode::Char('?'))).unwrap();
         assert!(matches!(app.mode, AppMode::Help));
     }
-    #[test] fn test_tab_switches_to_graph() {
+    #[test]
+    fn test_tab_switches_to_graph() {
         let mut app = make_app(setup_db());
         handle_key(&mut app, key(KeyCode::Tab)).unwrap();
         assert!(matches!(app.mode, AppMode::Graph));
     }
-    #[test] fn test_e_switches_to_entity() {
+    #[test]
+    fn test_e_switches_to_entity() {
         let mut app = make_app(setup_db());
         handle_key(&mut app, key(KeyCode::Char('e'))).unwrap();
         assert!(matches!(app.mode, AppMode::EntityGraph));
     }
-    #[test] fn test_t_switches_to_temporal() {
+    #[test]
+    fn test_t_switches_to_temporal() {
         let mut app = make_app(setup_db());
         handle_key(&mut app, key(KeyCode::Char('t'))).unwrap();
         assert!(matches!(app.mode, AppMode::Temporal));
     }
-    #[test] fn test_down_moves_selection() {
+    #[test]
+    fn test_down_moves_selection() {
         let mut app = make_app(setup_db());
         handle_key(&mut app, key(KeyCode::Down)).unwrap();
         // No crash with empty list
     }
-    #[test] fn test_graph_tab_returns() {
+    #[test]
+    fn test_graph_tab_returns() {
         let mut app = make_app(setup_db());
         handle_key(&mut app, key(KeyCode::Tab)).unwrap();
         assert!(matches!(app.mode, AppMode::Graph));
         handle_key(&mut app, key(KeyCode::Tab)).unwrap();
         assert!(matches!(app.mode, AppMode::Normal));
     }
-    #[test] fn test_confirm_delete_and_cancel() {
+    #[test]
+    fn test_confirm_delete_and_cancel() {
         let mut app = make_app(setup_db());
-        app.mode = AppMode::Confirming { action: "delete".to_string(), memory_id: Uuid::new_v4() };
+        app.mode = AppMode::Confirming {
+            action: "delete".to_string(),
+            memory_id: Uuid::new_v4(),
+        };
         handle_key(&mut app, key(KeyCode::Char('n'))).unwrap();
         assert!(matches!(app.mode, AppMode::Normal));
     }
-    #[test] fn test_search_input_and_cancel() {
+    #[test]
+    fn test_search_input_and_cancel() {
         let mut app = make_app(setup_db());
         handle_key(&mut app, key(KeyCode::Char('/'))).unwrap();
         assert!(matches!(app.mode, AppMode::Searching));

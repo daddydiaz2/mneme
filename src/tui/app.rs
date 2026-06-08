@@ -66,7 +66,10 @@ impl DetailTab {
 pub enum AppMode {
     Normal,
     Searching,
-    Confirming { action: String, memory_id: uuid::Uuid },
+    Confirming {
+        action: String,
+        memory_id: uuid::Uuid,
+    },
     Help,
     Graph,
     EntityGraph,
@@ -141,7 +144,8 @@ impl App {
                 all_projects: false,
             };
             let weights = crate::store::search::SearchWeights::default();
-            store.search(&query, &weights, None)?
+            store
+                .search(&query, &weights, None)?
                 .into_iter()
                 .map(|r| r.memory)
                 .collect()
@@ -167,7 +171,10 @@ impl App {
     pub fn toggle_graph(&mut self) -> crate::error::Result<()> {
         match self.mode {
             AppMode::Graph => self.mode = AppMode::Normal,
-            _ => { self.load_graph()?; self.mode = AppMode::Graph; }
+            _ => {
+                self.load_graph()?;
+                self.mode = AppMode::Graph;
+            }
         }
         Ok(())
     }
@@ -181,7 +188,10 @@ impl App {
     pub fn graph_prev(&mut self) {
         if let Some(ref data) = self.graph_data {
             if !data.nodes.is_empty() {
-                self.graph_selected = self.graph_selected.checked_sub(1).unwrap_or(data.nodes.len() - 1);
+                self.graph_selected = self
+                    .graph_selected
+                    .checked_sub(1)
+                    .unwrap_or(data.nodes.len() - 1);
             }
         }
     }
@@ -200,7 +210,10 @@ impl App {
     pub fn toggle_entity_graph(&mut self) -> crate::error::Result<()> {
         match self.mode {
             AppMode::EntityGraph => self.mode = AppMode::Normal,
-            _ => { self.load_entity_graph()?; self.mode = AppMode::EntityGraph; }
+            _ => {
+                self.load_entity_graph()?;
+                self.mode = AppMode::EntityGraph;
+            }
         }
         Ok(())
     }
@@ -219,7 +232,10 @@ impl App {
     pub fn toggle_temporal(&mut self) -> crate::error::Result<()> {
         match self.mode {
             AppMode::Temporal => self.mode = AppMode::Normal,
-            _ => { self.load_temporal()?; self.mode = AppMode::Temporal; }
+            _ => {
+                self.load_temporal()?;
+                self.mode = AppMode::Temporal;
+            }
         }
         Ok(())
     }
@@ -270,15 +286,24 @@ impl App {
     pub fn detail_scroll_up(&mut self) {
         self.detail_scroll = self.detail_scroll.saturating_sub(3);
     }
-    pub fn detail_next_tab(&mut self) { self.detail_tab = self.detail_tab.next(); self.detail_scroll = 0; }
-    pub fn detail_prev_tab(&mut self) { self.detail_tab = self.detail_tab.prev(); self.detail_scroll = 0; }
+    pub fn detail_next_tab(&mut self) {
+        self.detail_tab = self.detail_tab.next();
+        self.detail_scroll = 0;
+    }
+    pub fn detail_prev_tab(&mut self) {
+        self.detail_tab = self.detail_tab.prev();
+        self.detail_scroll = 0;
+    }
 
     pub fn selected_memory(&self) -> Option<&Memory> {
         self.memories.get(self.selected)
     }
 
     // ===== SEARCH =====
-    pub fn start_search(&mut self) { self.mode = AppMode::Searching; self.search_query.clear(); }
+    pub fn start_search(&mut self) {
+        self.mode = AppMode::Searching;
+        self.search_query.clear();
+    }
     pub fn confirm_search(&mut self) -> crate::error::Result<()> {
         self.mode = AppMode::Normal;
         self.load_memories()
@@ -288,13 +313,20 @@ impl App {
         self.search_query.clear();
         let _ = self.load_memories();
     }
-    pub fn push_search_char(&mut self, c: char) { self.search_query.push(c); }
-    pub fn pop_search_char(&mut self) { self.search_query.pop(); }
+    pub fn push_search_char(&mut self, c: char) {
+        self.search_query.push(c);
+    }
+    pub fn pop_search_char(&mut self) {
+        self.search_query.pop();
+    }
 
     // ===== DELETE =====
     pub fn delete_selected(&mut self) -> crate::error::Result<()> {
         if let Some(memory) = self.selected_memory() {
-            self.mode = AppMode::Confirming { action: "delete".to_string(), memory_id: memory.id };
+            self.mode = AppMode::Confirming {
+                action: "delete".to_string(),
+                memory_id: memory.id,
+            };
         }
         Ok(())
     }
@@ -310,7 +342,9 @@ impl App {
         }
         Ok(())
     }
-    pub fn cancel_confirm(&mut self) { self.mode = AppMode::Normal; }
+    pub fn cancel_confirm(&mut self) {
+        self.mode = AppMode::Normal;
+    }
 
     // ===== HELP / QUIT =====
     pub fn toggle_help(&mut self) {
@@ -319,7 +353,9 @@ impl App {
             _ => AppMode::Help,
         };
     }
-    pub fn quit(&mut self) { self.should_quit = true; }
+    pub fn quit(&mut self) {
+        self.should_quit = true;
+    }
 
     fn ensure_selected_visible(&mut self, visible: usize) {
         if self.selected < self.scroll_offset {

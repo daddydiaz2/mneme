@@ -27,6 +27,7 @@ tower-http = { version = "0.5", features = ["cors", "trace"] }
 
 # CLI
 clap = { version = "4", features = ["derive", "env", "wrap_help"] }
+clap_complete = "4"
 
 # TUI
 ratatui = "0.27"

@@ -1,4 +1,3 @@
-
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -33,7 +32,10 @@ fn panel(title: &'static str, focused: bool) -> Block<'static> {
         Style::default().fg(BORDER)
     };
     Block::default()
-        .title(Span::styled(format!(" {} ", title), Style::default().fg(TEXT_DIM).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            format!(" {} ", title),
+            Style::default().fg(TEXT_DIM).add_modifier(Modifier::BOLD),
+        ))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(border_style)
@@ -43,14 +45,16 @@ fn panel(title: &'static str, focused: bool) -> Block<'static> {
 // ── RENDER PRINCIPAL ──
 pub fn render(frame: &mut Frame, app: &App) {
     let size = frame.size();
-    if size.width < 60 || size.height < 10 { return; }
+    if size.width < 60 || size.height < 10 {
+        return;
+    }
 
     let main = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // header
-            Constraint::Min(1),      // body
-            Constraint::Length(2),  // status bar
+            Constraint::Length(3), // header
+            Constraint::Min(1),    // body
+            Constraint::Length(2), // status bar
         ])
         .split(size);
 
@@ -111,25 +115,38 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
     let total = format!("/ {}", app.total_memory_count);
 
     let mut spans = vec![
-        Span::styled(" mneme ", Style::default().fg(BLUE).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " mneme ",
+            Style::default().fg(BLUE).add_modifier(Modifier::BOLD),
+        ),
         Span::styled("│", Style::default().fg(BORDER)),
         Span::raw(" "),
-        Span::styled(&app.project, Style::default().fg(TEXT_HEADER).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            &app.project,
+            Style::default()
+                .fg(TEXT_HEADER)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" ", Style::default().fg(TEXT_DIM)),
     ];
 
     // Memory count pill
     let count_text = format!(" {} ", mem_count);
-    spans.push(Span::styled(count_text, Style::default().fg(GREEN).bg(BG_PANEL)));
+    spans.push(Span::styled(
+        count_text,
+        Style::default().fg(GREEN).bg(BG_PANEL),
+    ));
     if app.search_query.is_empty() {
         spans.push(Span::styled(total, Style::default().fg(TEXT_DIM)));
     } else {
-        spans.push(Span::styled(format!(" /{}:{}", app.search_query, app.memories.len()), Style::default().fg(YELLOW)));
+        spans.push(Span::styled(
+            format!(" /{}:{}", app.search_query, app.memories.len()),
+            Style::default().fg(YELLOW),
+        ));
     }
     spans.push(Span::raw(" "));
 
-    let para = Paragraph::new(Line::from(spans))
-        .style(Style::default().bg(BG));
+    let para = Paragraph::new(Line::from(spans)).style(Style::default().bg(BG));
     frame.render_widget(para, inner);
 }
 
@@ -138,15 +155,22 @@ fn render_memory_list(frame: &mut Frame, app: &App, area: Rect) {
     let block = panel("Memories", app.selected_memory().is_some());
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    if inner.height > 2 { frame.render_widget(Clear, inner); }
+    if inner.height > 2 {
+        frame.render_widget(Clear, inner);
+    }
 
     if app.memories.is_empty() {
         let msg = if app.search_query.is_empty() {
-            format!(" No memories for project '{}'.\n Press / to search, r to refresh.", app.project)
+            format!(
+                " No memories for project '{}'.\n Press / to search, r to refresh.",
+                app.project
+            )
         } else {
             format!(" No results for \"{}\".", app.search_query)
         };
-        let para = Paragraph::new(msg).style(Style::default().fg(TEXT_DIM)).wrap(Wrap { trim: false });
+        let para = Paragraph::new(msg)
+            .style(Style::default().fg(TEXT_DIM))
+            .wrap(Wrap { trim: false });
         frame.render_widget(para, inner);
         return;
     }
@@ -155,7 +179,9 @@ fn render_memory_list(frame: &mut Frame, app: &App, area: Rect) {
     let mut y = inner.y;
     let max_y = inner.y + inner.height;
     for i in app.scroll_offset.. {
-        if y >= max_y || i >= app.memories.len() { break; }
+        if y >= max_y || i >= app.memories.len() {
+            break;
+        }
         let mem = &app.memories[i];
         let selected = i == app.selected;
 
@@ -173,18 +199,28 @@ fn render_memory_list(frame: &mut Frame, app: &App, area: Rect) {
             title.to_string()
         };
         let line = Line::from(vec![
-            Span::styled(format!(" {} ", type_abbr), Style::default().fg(BG).bg(imp_color)),
+            Span::styled(
+                format!(" {} ", type_abbr),
+                Style::default().fg(BG).bg(imp_color),
+            ),
             Span::styled(" ", Style::default().bg(bg)),
             Span::styled(&title_s, Style::default().fg(fg).bg(bg)),
         ]);
         let para = Paragraph::new(line);
-        frame.render_widget(para, Rect::new(inner.x + 1, y, inner.width.saturating_sub(2), 1));
+        frame.render_widget(
+            para,
+            Rect::new(inner.x + 1, y, inner.width.saturating_sub(2), 1),
+        );
         y += 1;
 
         // Subtitle line (tags or preview)
         if selected || i == app.selected {
             let tags: Vec<&str> = mem.tags.iter().map(|t| t.as_str()).collect();
-            let tags_str = if tags.is_empty() { "" } else { &tags.join(", ") };
+            let tags_str = if tags.is_empty() {
+                ""
+            } else {
+                &tags.join(", ")
+            };
             let preview = mem.content.chars().take(50).collect::<String>();
             let sub = if !tags_str.is_empty() && y < max_y {
                 format!("  {}  {}", tags_str, preview)
@@ -196,7 +232,10 @@ fn render_memory_list(frame: &mut Frame, app: &App, area: Rect) {
             if !sub.is_empty() && y < max_y {
                 let sub_para = Paragraph::new(Span::styled(sub, Style::default().fg(TEXT_DIM)))
                     .style(Style::default().bg(bg));
-                frame.render_widget(sub_para, Rect::new(inner.x + 1, y, inner.width.saturating_sub(2), 1));
+                frame.render_widget(
+                    sub_para,
+                    Rect::new(inner.x + 1, y, inner.width.saturating_sub(2), 1),
+                );
                 y += 1;
             }
         }
@@ -208,7 +247,9 @@ fn render_detail_panel(frame: &mut Frame, app: &App, area: Rect) {
     let block = panel("Detail", true);
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    if inner.height > 2 { frame.render_widget(Clear, inner); }
+    if inner.height > 2 {
+        frame.render_widget(Clear, inner);
+    }
 
     let memory = match app.selected_memory() {
         Some(m) => m,
@@ -221,7 +262,13 @@ fn render_detail_panel(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     // Tab bar
-    let tabs = [" Content ", " Fields ", " Entities ", " Temporal ", " Graph "];
+    let tabs = [
+        " Content ",
+        " Fields ",
+        " Entities ",
+        " Temporal ",
+        " Graph ",
+    ];
     let tab_highlight = match app.detail_tab {
         DetailTab::Content => 0,
         DetailTab::Structured => 1,
@@ -231,54 +278,110 @@ fn render_detail_panel(frame: &mut Frame, app: &App, area: Rect) {
     };
     // Render all tabs at top
     let tabs_area = Rect::new(inner.x + 1, inner.y, inner.width.saturating_sub(2), 1);
-    let tab_line: Vec<Span> = tabs.iter().enumerate().map(|(i, label)| {
-        if i == tab_highlight {
-            Span::styled(label.to_string(), Style::default().fg(BORDER_FOCUS).add_modifier(Modifier::BOLD | Modifier::REVERSED))
-        } else {
-            Span::styled(label.to_string(), Style::default().fg(TEXT_DIM))
-        }
-    }).collect();
+    let tab_line: Vec<Span> = tabs
+        .iter()
+        .enumerate()
+        .map(|(i, label)| {
+            if i == tab_highlight {
+                Span::styled(
+                    label.to_string(),
+                    Style::default()
+                        .fg(BORDER_FOCUS)
+                        .add_modifier(Modifier::BOLD | Modifier::REVERSED),
+                )
+            } else {
+                Span::styled(label.to_string(), Style::default().fg(TEXT_DIM))
+            }
+        })
+        .collect();
     frame.render_widget(Paragraph::new(Line::from(tab_line)), tabs_area);
 
     // Content area
-    let content_area = Rect::new(inner.x + 1, inner.y + 1, inner.width.saturating_sub(2), inner.height.saturating_sub(2));
-    if content_area.width < 5 || content_area.height < 2 { return; }
+    let content_area = Rect::new(
+        inner.x + 1,
+        inner.y + 1,
+        inner.width.saturating_sub(2),
+        inner.height.saturating_sub(2),
+    );
+    if content_area.width < 5 || content_area.height < 2 {
+        return;
+    }
 
     match app.detail_tab {
         DetailTab::Content => render_detail_content(frame, memory, content_area, app.detail_scroll),
-        DetailTab::Structured => render_detail_structured(frame, memory, content_area, app.detail_scroll),
+        DetailTab::Structured => {
+            render_detail_structured(frame, memory, content_area, app.detail_scroll)
+        }
         DetailTab::Entities => render_detail_entities(frame, app, content_area),
         DetailTab::Temporal => render_detail_temporal(frame, memory, content_area),
         DetailTab::Relations => render_detail_relations(frame, app, memory, content_area),
     }
 }
 
-fn render_detail_content(frame: &mut Frame, memory: &crate::store::memory::Memory, area: Rect, scroll: usize) {
-    let text = format!("{}\n\n📝 {}\n\n{}", memory.title, memory.content, memory.learned.as_deref().unwrap_or(""));
+fn render_detail_content(
+    frame: &mut Frame,
+    memory: &crate::store::memory::Memory,
+    area: Rect,
+    scroll: usize,
+) {
+    let text = format!(
+        "{}\n\n📝 {}\n\n{}",
+        memory.title,
+        memory.content,
+        memory.learned.as_deref().unwrap_or("")
+    );
     let line_count = text.lines().count();
     let para = Paragraph::new(text.as_str())
         .style(Style::default().fg(TEXT))
-        .scroll((scroll.min(line_count.saturating_sub(area.height as usize)) as u16, 0))
+        .scroll((
+            scroll.min(line_count.saturating_sub(area.height as usize)) as u16,
+            0,
+        ))
         .wrap(Wrap { trim: false });
     frame.render_widget(para, area);
 }
 
-fn render_detail_structured(frame: &mut Frame, memory: &crate::store::memory::Memory, area: Rect, _scroll: usize) {
+fn render_detail_structured(
+    frame: &mut Frame,
+    memory: &crate::store::memory::Memory,
+    area: Rect,
+    _scroll: usize,
+) {
     let mut lines = Vec::new();
-    if let Some(ref w) = memory.what { lines.push(format!(" What: {}", w)); }
-    if let Some(ref w) = memory.why { lines.push(format!(" Why: {}", w)); }
-    if let Some(ref c) = memory.context { lines.push(format!(" Context: {}", c)); }
-    if let Some(ref l) = memory.learned { lines.push(format!(" Learned: {}", l)); }
+    if let Some(ref w) = memory.what {
+        lines.push(format!(" What: {}", w));
+    }
+    if let Some(ref w) = memory.why {
+        lines.push(format!(" Why: {}", w));
+    }
+    if let Some(ref c) = memory.context {
+        lines.push(format!(" Context: {}", c));
+    }
+    if let Some(ref l) = memory.learned {
+        lines.push(format!(" Learned: {}", l));
+    }
     if lines.is_empty() {
         lines.push(" No structured fields.".to_string());
     }
     // Meta info
     lines.push(String::new());
-    lines.push(format!(" Type: {}  Importance: {}  Scope: {}", memory.memory_type, memory.importance, memory.scope));
-    lines.push(format!(" Access: {}  Revisions: {}  Duplicates: {}", memory.access_count, memory.revision_count, memory.duplicate_count));
+    lines.push(format!(
+        " Type: {}  Importance: {}  Scope: {}",
+        memory.memory_type, memory.importance, memory.scope
+    ));
+    lines.push(format!(
+        " Access: {}  Revisions: {}  Duplicates: {}",
+        memory.access_count, memory.revision_count, memory.duplicate_count
+    ));
     lines.push(format!(" Tags: {}", memory.tags.join(", ")));
-    lines.push(format!(" Created: {}", memory.created_at.format("%Y-%m-%d %H:%M UTC")));
-    lines.push(format!(" Updated: {}", memory.updated_at.format("%Y-%m-%d %H:%M UTC")));
+    lines.push(format!(
+        " Created: {}",
+        memory.created_at.format("%Y-%m-%d %H:%M UTC")
+    ));
+    lines.push(format!(
+        " Updated: {}",
+        memory.updated_at.format("%Y-%m-%d %H:%M UTC")
+    ));
 
     let text = Text::from(lines.join("\n"));
     let para = Paragraph::new(text).style(Style::default().fg(TEXT));
@@ -286,15 +389,26 @@ fn render_detail_structured(frame: &mut Frame, memory: &crate::store::memory::Me
 }
 
 fn render_detail_entities(frame: &mut Frame, app: &App, area: Rect) {
-    if let Ok(store) = &app.db.entities().get_memory_entities(app.selected_memory().map(|m| m.id).unwrap_or_default()) {
+    if let Ok(store) = &app
+        .db
+        .entities()
+        .get_memory_entities(app.selected_memory().map(|m| m.id).unwrap_or_default())
+    {
         if store.is_empty() {
-            let para = Paragraph::new(" No entities extracted.").style(Style::default().fg(TEXT_DIM));
+            let para =
+                Paragraph::new(" No entities extracted.").style(Style::default().fg(TEXT_DIM));
             frame.render_widget(para, area);
             return;
         }
-        let lines: Vec<String> = store.iter().map(|e| {
-            format!(" {} ({})  confidence: {:.2}", e.entity_name, e.entity_type, e.confidence)
-        }).collect();
+        let lines: Vec<String> = store
+            .iter()
+            .map(|e| {
+                format!(
+                    " {} ({})  confidence: {:.2}",
+                    e.entity_name, e.entity_type, e.confidence
+                )
+            })
+            .collect();
         let text = Text::from(lines.join("\n"));
         frame.render_widget(Paragraph::new(text).style(Style::default().fg(CYAN)), area);
     } else {
@@ -304,23 +418,50 @@ fn render_detail_entities(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_detail_temporal(frame: &mut Frame, memory: &crate::store::memory::Memory, area: Rect) {
-    let vf = memory.valid_from.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_else(|| "—".to_string());
-    let vu = memory.valid_until.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_else(|| "—".to_string());
+    let vf = memory
+        .valid_from
+        .map(|d| d.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| "—".to_string());
+    let vu = memory
+        .valid_until
+        .map(|d| d.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| "—".to_string());
     let prov = memory.provenance.as_deref().unwrap_or("none");
-    let text = format!(" Valid From: {}\n Valid Until: {}\n Provenance: {}", vf, vu, prov);
+    let text = format!(
+        " Valid From: {}\n Valid Until: {}\n Provenance: {}",
+        vf, vu, prov
+    );
     let para = Paragraph::new(text).style(Style::default().fg(TEXT));
     frame.render_widget(para, area);
 }
 
-fn render_detail_relations(frame: &mut Frame, app: &App, memory: &crate::store::memory::Memory, area: Rect) {
+fn render_detail_relations(
+    frame: &mut Frame,
+    app: &App,
+    memory: &crate::store::memory::Memory,
+    area: Rect,
+) {
     // Get graph data and show relations for this memory
     if let Ok(data) = app.db.memories().get_graph(&app.project) {
-        let edges: Vec<String> = data.edges.iter()
+        let edges: Vec<String> = data
+            .edges
+            .iter()
             .filter(|e| e.source == memory.id.to_string() || e.target == memory.id.to_string())
             .map(|e| {
-                let other = if e.source == memory.id.to_string() { &e.target } else { &e.source };
-                let dir = if e.source == memory.id.to_string() { "→" } else { "←" };
-                format!(" {} {} {} ({:.2})", other, dir, e.relation_type, e.confidence)
+                let other = if e.source == memory.id.to_string() {
+                    &e.target
+                } else {
+                    &e.source
+                };
+                let dir = if e.source == memory.id.to_string() {
+                    "→"
+                } else {
+                    "←"
+                };
+                format!(
+                    " {} {} {} ({:.2})",
+                    other, dir, e.relation_type, e.confidence
+                )
             })
             .collect();
         if edges.is_empty() {
@@ -329,7 +470,10 @@ fn render_detail_relations(frame: &mut Frame, app: &App, memory: &crate::store::
             return;
         }
         let text = Text::from(edges.join("\n"));
-        frame.render_widget(Paragraph::new(text).style(Style::default().fg(MAGENTA)), area);
+        frame.render_widget(
+            Paragraph::new(text).style(Style::default().fg(MAGENTA)),
+            area,
+        );
     }
 }
 
@@ -340,11 +484,19 @@ fn render_graph_panel(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(block, area);
     if let Some(ref data) = app.graph_data {
         let _selected_node = data.nodes.get(app.graph_selected);
-        let mut lines = vec![format!("Nodes: {}  Edges: {}  Selected: {}", data.nodes.len(), data.edges.len(), app.graph_selected + 1)];
+        let mut lines = vec![format!(
+            "Nodes: {}  Edges: {}  Selected: {}",
+            data.nodes.len(),
+            data.edges.len(),
+            app.graph_selected + 1
+        )];
         lines.push(String::new());
         for (i, node) in data.nodes.iter().enumerate() {
             let indent = if i == app.graph_selected { "→" } else { " " };
-            lines.push(format!(" {} [{}] {} ({})", indent, node.importance, node.title, node.memory_type));
+            lines.push(format!(
+                " {} [{}] {} ({})",
+                indent, node.importance, node.title, node.memory_type
+            ));
         }
         let text = Text::from(lines.join("\n"));
         let para = Paragraph::new(text).style(Style::default().fg(TEXT));
@@ -357,9 +509,21 @@ fn render_entity_graph_panel(frame: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
     if let Some(ref eg) = app.entity_graph_data {
-        let text = Text::from(eg.frequent_entities.iter().enumerate().map(|(i, (name, _etype, count))| {
-            format!(" {} {}  ({})", if i == eg.selected { "→" } else { " " }, name, count)
-        }).collect::<Vec<_>>().join("\n"));
+        let text = Text::from(
+            eg.frequent_entities
+                .iter()
+                .enumerate()
+                .map(|(i, (name, _etype, count))| {
+                    format!(
+                        " {} {}  ({})",
+                        if i == eg.selected { "→" } else { " " },
+                        name,
+                        count
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
         frame.render_widget(Paragraph::new(text).style(Style::default().fg(CYAN)), inner);
     }
 }
@@ -369,27 +533,56 @@ fn render_temporal_panel(frame: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
     if let Some(ref td) = app.temporal_data {
-        let mode = match td.display_mode { 0 => "All", 1 => "Valid Now", 2 => "Expired", _ => "" };
+        let mode = match td.display_mode {
+            0 => "All",
+            1 => "Valid Now",
+            2 => "Expired",
+            _ => "",
+        };
         let total = td.memories.len();
-        let valid = td.memories.iter().filter(|m| {
-            let now = td.reference_time;
-            match (m.valid_from, m.valid_until) {
-                (Some(vf), Some(vu)) => vf <= now && now < vu,
-                (Some(vf), None) => vf <= now,
-                (None, Some(vu)) => now < vu,
-                (None, None) => true,
-            }
-        }).count();
-        let expired = td.memories.iter().filter(|m| m.valid_until.map(|vu| vu <= td.reference_time).unwrap_or(false)).count();
-        let mut lines = vec![format!("Mode: {}  Total: {}  Valid: {}  Expired: {}", mode, total, valid, expired)];
+        let valid = td
+            .memories
+            .iter()
+            .filter(|m| {
+                let now = td.reference_time;
+                match (m.valid_from, m.valid_until) {
+                    (Some(vf), Some(vu)) => vf <= now && now < vu,
+                    (Some(vf), None) => vf <= now,
+                    (None, Some(vu)) => now < vu,
+                    (None, None) => true,
+                }
+            })
+            .count();
+        let expired = td
+            .memories
+            .iter()
+            .filter(|m| {
+                m.valid_until
+                    .map(|vu| vu <= td.reference_time)
+                    .unwrap_or(false)
+            })
+            .count();
+        let mut lines = vec![format!(
+            "Mode: {}  Total: {}  Valid: {}  Expired: {}",
+            mode, total, valid, expired
+        )];
         lines.push(String::new());
         for mem in &td.memories {
-            let vf = mem.valid_from.map(|d| d.format("%m-%d").to_string()).unwrap_or_else(|| "--".to_string());
-            let vu = mem.valid_until.map(|d| d.format("%m-%d").to_string()).unwrap_or_else(|| "--".to_string());
+            let vf = mem
+                .valid_from
+                .map(|d| d.format("%m-%d").to_string())
+                .unwrap_or_else(|| "--".to_string());
+            let vu = mem
+                .valid_until
+                .map(|d| d.format("%m-%d").to_string())
+                .unwrap_or_else(|| "--".to_string());
             lines.push(format!("  {} [{} → {}]", mem.title, vf, vu));
         }
         let text = Text::from(lines.join("\n"));
-        frame.render_widget(Paragraph::new(text).style(Style::default().fg(YELLOW)), inner);
+        frame.render_widget(
+            Paragraph::new(text).style(Style::default().fg(YELLOW)),
+            inner,
+        );
     }
 }
 
@@ -418,7 +611,10 @@ fn render_confirm_overlay(frame: &mut Frame, action: &str, area: Rect) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let msg = format!(" Confirm {}? (y/N)", action);
-    frame.render_widget(Paragraph::new(msg).style(Style::default().fg(TEXT_HEADER)), inner);
+    frame.render_widget(
+        Paragraph::new(msg).style(Style::default().fg(TEXT_HEADER)),
+        inner,
+    );
 }
 
 fn render_help_overlay(frame: &mut Frame, area: Rect) {
@@ -431,26 +627,41 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
     frame.render_widget(block, area);
 
     let help_text = vec![
-        Line::from(vec![Span::styled(" NAVIGATION ", Style::default().fg(BLUE).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![Span::styled(
+            " NAVIGATION ",
+            Style::default().fg(BLUE).add_modifier(Modifier::BOLD),
+        )]),
         Line::from(" j/k or ↑/↓  Move selection"),
         Line::from(" g/G         First / last memory"),
         Line::from(" PgUp/PgDn   Page up / down"),
         Line::from(""),
-        Line::from(vec![Span::styled(" DETAIL PANEL ", Style::default().fg(BLUE).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![Span::styled(
+            " DETAIL PANEL ",
+            Style::default().fg(BLUE).add_modifier(Modifier::BOLD),
+        )]),
         Line::from(" Shift+J/K   Scroll detail content"),
         Line::from(" [ / ]       Previous / next detail tab"),
         Line::from(""),
-        Line::from(vec![Span::styled(" ACTIONS ", Style::default().fg(BLUE).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![Span::styled(
+            " ACTIONS ",
+            Style::default().fg(BLUE).add_modifier(Modifier::BOLD),
+        )]),
         Line::from(" /           Search"),
         Line::from(" r           Reload memories"),
         Line::from(" d           Delete selected memory"),
         Line::from(""),
-        Line::from(vec![Span::styled(" VIEWS ", Style::default().fg(BLUE).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![Span::styled(
+            " VIEWS ",
+            Style::default().fg(BLUE).add_modifier(Modifier::BOLD),
+        )]),
         Line::from(" Tab         Knowledge graph"),
         Line::from(" e           Entity graph (frequent entities)"),
         Line::from(" t           Temporal view (validity windows)"),
         Line::from(""),
-        Line::from(vec![Span::styled(" MISC ", Style::default().fg(BLUE).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![Span::styled(
+            " MISC ",
+            Style::default().fg(BLUE).add_modifier(Modifier::BOLD),
+        )]),
         Line::from(" ?           Toggle this help"),
         Line::from(" q / Ctrl+C  Quit"),
     ];
@@ -461,12 +672,30 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
 // ── STATUSBAR ──
 fn render_statusbar(frame: &mut Frame, app: &App, area: Rect) {
     let (text, style): (String, Style) = match app.mode {
-        AppMode::Graph => (" [Tab/Esc] Back  [j/k] Select  [q] Quit".to_string(), Style::default().fg(TEXT_DIM).bg(BG_PANEL)),
-        AppMode::EntityGraph => (" [Tab/Esc] Back  [r] Refresh  [q] Quit".to_string(), Style::default().fg(TEXT_DIM).bg(BG_PANEL)),
-        AppMode::Temporal => (" [Tab/Esc] Back  [m] Cycle mode  [r] Refresh  [q] Quit".to_string(), Style::default().fg(TEXT_DIM).bg(BG_PANEL)),
-        AppMode::Searching => (" Type to search. Esc to cancel, Enter to confirm.".to_string(), Style::default().fg(YELLOW).bg(BG_PANEL)),
-        AppMode::Confirming { .. } => (" [y] Yes  [n/Esc] No".to_string(), Style::default().fg(RED).bg(BG_PANEL)),
-        AppMode::Help => (" Press any key to close help.".to_string(), Style::default().fg(TEXT_DIM).bg(BG_PANEL)),
+        AppMode::Graph => (
+            " [Tab/Esc] Back  [j/k] Select  [q] Quit".to_string(),
+            Style::default().fg(TEXT_DIM).bg(BG_PANEL),
+        ),
+        AppMode::EntityGraph => (
+            " [Tab/Esc] Back  [r] Refresh  [q] Quit".to_string(),
+            Style::default().fg(TEXT_DIM).bg(BG_PANEL),
+        ),
+        AppMode::Temporal => (
+            " [Tab/Esc] Back  [m] Cycle mode  [r] Refresh  [q] Quit".to_string(),
+            Style::default().fg(TEXT_DIM).bg(BG_PANEL),
+        ),
+        AppMode::Searching => (
+            " Type to search. Esc to cancel, Enter to confirm.".to_string(),
+            Style::default().fg(YELLOW).bg(BG_PANEL),
+        ),
+        AppMode::Confirming { .. } => (
+            " [y] Yes  [n/Esc] No".to_string(),
+            Style::default().fg(RED).bg(BG_PANEL),
+        ),
+        AppMode::Help => (
+            " Press any key to close help.".to_string(),
+            Style::default().fg(TEXT_DIM).bg(BG_PANEL),
+        ),
         AppMode::Normal => {
             let hint = match app.selected_memory() {
                 Some(m) => format!(
@@ -478,8 +707,7 @@ fn render_statusbar(frame: &mut Frame, app: &App, area: Rect) {
             (hint, Style::default().fg(TEXT_DIM).bg(BG_PANEL))
         }
     };
-    let bar = Paragraph::new(Span::raw(text.as_str()))
-        .style(style);
+    let bar = Paragraph::new(Span::raw(text.as_str())).style(style);
     frame.render_widget(bar, area);
 }
 
@@ -523,9 +751,9 @@ fn memory_type_abbrev(mt: &crate::store::memory::MemoryType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tui::app::App;
     use crate::config::settings::Settings;
     use crate::store::db::Database;
+    use crate::tui::app::App;
     use std::path::PathBuf;
     use std::sync::Arc;
     use uuid::Uuid;
