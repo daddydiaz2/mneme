@@ -159,7 +159,7 @@ pub enum Commands {
     },
     /// Inicia servidor MCP.
     Mcp,
-    /// Inicia TUI (placeholder).
+    /// Inicia TUI interactiva (lista, grafo, entidades, temporal, search).
     Tui,
     /// Configura integración con agentes.
     Setup {
