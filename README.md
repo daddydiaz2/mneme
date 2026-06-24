@@ -1,4 +1,4 @@
-# mneme - Sistema de memoria persistente para agentes de IA
+# mneme 🧠 — Persistent memory for AI coding agents
 
 <div align="center">
 
@@ -8,10 +8,27 @@
 ![SQLite](https://img.shields.io/badge/SQLite-FTS5-003B57?logo=sqlite&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-64_tools-6C3483?logo=anthropic&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
+[![crates.io](https://img.shields.io/badge/crates.io-mneme--brain-orange)](https://crates.io/crates/mneme-brain)
 
-**Sistema de memoria persistente para agentes de IA** — búsqueda híbrida (FTS5 + fuzzy + embeddings ONNX), encriptación age/SSH, sync CRDT P2P, TUI interactiva con grafo visual, plugins WASM, MCP server y HTTP API.
+**Persistent memory for AI coding agents** — hybrid search (FTS5 + fuzzy + ONNX), age/SSH encryption, CRDT P2P sync, interactive TUI with knowledge graph, WASM plugins, MCP server and HTTP API.
 
 </div>
+
+---
+
+## Install
+
+```bash
+# crates.io
+cargo install mneme-brain
+
+# Homebrew
+brew tap daddydiaz2/homebrew-tap
+brew install mneme
+
+# Docker
+docker build -t mneme:latest https://github.com/daddydiaz2/mneme.git
+```
 
 ---
 
@@ -461,10 +478,25 @@ docker run --rm -it -v mneme-data:/app/data mneme:latest mneme tui
 
 La imagen incluye todas las features habilitadas (embeddings ONNX + plugins WASM).
 
+### crates.io (recomendado)
+
+```bash
+cargo install mneme-brain
+```
+
+Esto instala el binario `mneme`.
+
+### Homebrew
+
+```bash
+brew tap daddydiaz2/homebrew-tap
+brew install mneme
+```
+
 ### Desde código fuente
 
 ```bash
-git clone git@github.com:daddydiaz2/mneme.git
+git clone https://github.com/daddydiaz2/mneme.git
 cd mneme
 
 # Sin features opcionales (binario ~13 MB)
