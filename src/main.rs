@@ -114,8 +114,8 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Mcp => {
-            let server = mneme::mcp::server::MnemeServer::new(db, Arc::new(settings), embeddings);
-            server.run_stdio().await?;
+            // Use the simple MCP server that works correctly with stdio
+            mneme::mcp::simple::run_simple_stdio(db).await?;
         }
         Commands::Serve { port, host } => {
             let router = mneme::http::router::create_router(db, embeddings);

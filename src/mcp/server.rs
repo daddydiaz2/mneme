@@ -52,7 +52,11 @@ impl MnemeServer {
     pub async fn run_stdio(self) -> crate::error::Result<()> {
         let (stdin, stdout) = rmcp::transport::io::stdio();
         let transport = (stdin, stdout);
-        rmcp::service::serve_server(self, transport)
+        let running = rmcp::service::serve_server(self, transport)
+            .await
+            .map_err(|e| crate::error::MnemeError::Mcp(e.to_string()))?;
+        // Wait for the server to finish (keeps the background task alive)
+        running.waiting()
             .await
             .map_err(|e| crate::error::MnemeError::Mcp(e.to_string()))?;
         Ok(())
