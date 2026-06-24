@@ -11,6 +11,9 @@ documentation = "https://github.com/daddydiaz2/mneme#readme"
 keywords = ["ai", "agent", "mcp", "memory", "sqlite"]
 categories = ["command-line-utilities", "database"]
 
+[lib]
+name = "mneme"
+
 [[bin]]
 name = "mneme"
 path = "src/main.rs"
