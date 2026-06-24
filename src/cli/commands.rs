@@ -528,6 +528,18 @@ pub enum AgentSetup {
     ClaudeCode,
     /// Configura Continue.
     Continue,
+    /// Configura Cursor.
+    Cursor,
+    /// Configura Windsurf.
+    Windsurf,
+    /// Configura VS Code Copilot Chat.
+    VscodeCopilot,
+    /// Configura Gemini CLI (Google).
+    GeminiCli,
+    /// Configura Codex CLI (OpenAI).
+    Codex,
+    /// Configura Zed editor.
+    Zed,
 }
 
 /// Ejecuta un comando CLI contra la base de datos.
@@ -722,6 +734,12 @@ pub fn run_command(
             AgentSetup::Opencode => setup_opencode()?,
             AgentSetup::ClaudeCode => setup_claude_code()?,
             AgentSetup::Continue => setup_continue()?,
+            AgentSetup::Cursor => setup_cursor()?,
+            AgentSetup::Windsurf => setup_windsurf()?,
+            AgentSetup::VscodeCopilot => setup_vscode_copilot()?,
+            AgentSetup::GeminiCli => setup_gemini_cli()?,
+            AgentSetup::Codex => setup_codex()?,
+            AgentSetup::Zed => setup_zed()?,
         },
         Commands::Export {
             project,
@@ -1392,6 +1410,157 @@ fn setup_continue() -> crate::error::Result<()> {
 
     output::print_success(&format!(
         "Continue config written to {}",
+        config_path.display()
+    ));
+    Ok(())
+}
+
+// ─── Multi-agent setup helpers ──────────────────────────────────────────────
+
+fn home_dir() -> std::path::PathBuf {
+    dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."))
+}
+
+fn xdg_config_home() -> std::path::PathBuf {
+    std::env::var("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| home_dir().join(".config"))
+}
+
+/// Escribe un config MCP estándar con `mcpServers` → `mneme`.
+/// Usado por: cursor, windsurf, gemini-cli, codex.
+fn write_standard_mcp_config(config_path: std::path::PathBuf, label: &str) -> crate::error::Result<()> {
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let mut config: serde_json::Value = if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path)?;
+        serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    if !config.is_object() {
+        config = serde_json::json!({});
+    }
+    if config.get("mcpServers").map_or(true, |v| !v.is_object()) {
+        config["mcpServers"] = serde_json::json!({});
+    }
+
+    config["mcpServers"]["mneme"] = serde_json::json!({
+        "command": "mneme",
+        "args": ["mcp"]
+    });
+
+    std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+    output::print_success(&format!("{label} config written to {}", config_path.display()));
+    Ok(())
+}
+
+/// Cursor — ~/.cursor/mcp.json
+fn setup_cursor() -> crate::error::Result<()> {
+    let config_dir = home_dir().join(".cursor");
+    let config_path = config_dir.join("mcp.json");
+    write_standard_mcp_config(config_path, "Cursor")
+}
+
+/// Windsurf — ~/.codeium/windsurf/mcp_config.json
+fn setup_windsurf() -> crate::error::Result<()> {
+    let config_dir = home_dir().join(".codeium").join("windsurf");
+    let config_path = config_dir.join("mcp_config.json");
+    write_standard_mcp_config(config_path, "Windsurf")
+}
+
+/// Gemini CLI — ~/.config/gemini-cli/mcp.json
+fn setup_gemini_cli() -> crate::error::Result<()> {
+    let config_dir = xdg_config_home().join("gemini-cli");
+    let config_path = config_dir.join("mcp.json");
+    write_standard_mcp_config(config_path, "Gemini CLI")
+}
+
+/// Codex CLI (OpenAI) — ~/.codex/settings.json
+fn setup_codex() -> crate::error::Result<()> {
+    let config_dir = home_dir().join(".codex");
+    let config_path = config_dir.join("settings.json");
+    write_standard_mcp_config(config_path, "Codex CLI")
+}
+
+/// VS Code Copilot Chat — varía por OS
+fn setup_vscode_copilot() -> crate::error::Result<()> {
+    // VS Code global storage path per platform
+    #[cfg(target_os = "linux")]
+    let base = xdg_config_home().join("Code").join("User");
+    #[cfg(target_os = "macos")]
+    let base = home_dir().join("Library").join("Application Support").join("Code").join("User");
+    #[cfg(target_os = "windows")]
+    let base = {
+        let appdata = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
+        std::path::PathBuf::from(appdata).join("Code").join("User")
+    };
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    let base = xdg_config_home().join("Code").join("User");
+
+    let config_dir = base.join("globalStorage").join("github.copilot-chat");
+    std::fs::create_dir_all(&config_dir)?;
+    let config_path = config_dir.join("mcp_config.json");
+
+    let mut config: serde_json::Value = if config_path.exists() {
+        serde_json::from_str(&std::fs::read_to_string(&config_path)?)
+            .unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    if !config.is_object() {
+        config = serde_json::json!({});
+    }
+    if config.get("servers").map_or(true, |v| !v.is_object()) {
+        config["servers"] = serde_json::json!({});
+    }
+
+    config["servers"]["mneme"] = serde_json::json!({
+        "type": "stdio",
+        "command": "mneme",
+        "args": ["mcp"]
+    });
+
+    std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+    output::print_success(&format!(
+        "VS Code Copilot Chat config written to {}",
+        config_path.display()
+    ));
+    Ok(())
+}
+
+/// Zed — ~/.config/zed/settings.json (mergea mcp_servers dentro del settings existente)
+fn setup_zed() -> crate::error::Result<()> {
+    let config_dir = xdg_config_home().join("zed");
+    std::fs::create_dir_all(&config_dir)?;
+    let config_path = config_dir.join("settings.json");
+
+    let mut config: serde_json::Value = if config_path.exists() {
+        serde_json::from_str(&std::fs::read_to_string(&config_path)?)
+            .unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    if !config.is_object() {
+        config = serde_json::json!({});
+    }
+    if config.get("mcp_servers").map_or(true, |v| !v.is_object()) {
+        config["mcp_servers"] = serde_json::json!({});
+    }
+
+    config["mcp_servers"]["mneme"] = serde_json::json!({
+        "command": "mneme",
+        "args": ["mcp"]
+    });
+
+    std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+    output::print_success(&format!(
+        "Zed config merged into {}",
         config_path.display()
     ));
     Ok(())

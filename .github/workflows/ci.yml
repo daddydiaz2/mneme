@@ -8,54 +8,49 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
 
 jobs:
-  test:
+  check:
+    name: Check
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        features: ["", "--features embeddings"]
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: stable
+          components: clippy, rustfmt
+      - run: cargo check --all-features
+      - run: cargo clippy --all-features -- -D warnings
+      - run: cargo fmt --check
 
-      - name: Build
-        run: cargo build ${{ matrix.features }} --release
-
-      - name: Test
-        run: cargo test --tests ${{ matrix.features }} -- --test-threads=4
-
-      - name: Check warnings
-        run: cargo check ${{ matrix.features }} 2>&1 | grep -c "warning" || true
-
-      - name: Binary size
-        run: ls -lh target/release/mneme
-
-  docker:
-    needs: test
+  test:
+    name: Test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: cargo test --all-features
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+  test-no-optional:
+    name: Test (default features)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: cargo test
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+  build:
+    name: Build
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: cargo build --release
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ github.sha }}
+          name: mneme-${{ runner.os }}
+          path: target/release/mneme${{ runner.os == 'Windows' && '.exe' || '' }}

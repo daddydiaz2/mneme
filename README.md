@@ -485,16 +485,17 @@ cargo install --path .
 
 ### Configuracion de agentes
 
-```bash
-# Claude Code
-mneme setup claude-code
-
-# OpenCode
-mneme setup opencode
-
-# Continue
-mneme setup continue
-```
+| Agent | Comando |
+|-------|---------|
+| **Claude Code** | `mneme setup claude-code` |
+| **OpenCode** | `mneme setup opencode` |
+| **Cursor** | `mneme setup cursor` |
+| **Windsurf** | `mneme setup windsurf` |
+| **Continue** | `mneme setup continue` |
+| **VS Code Copilot Chat** | `mneme setup vscode-copilot` |
+| **Gemini CLI (Google)** | `mneme setup gemini-cli` |
+| **Codex CLI (OpenAI)** | `mneme setup codex` |
+| **Zed** | `mneme setup zed` |
 
 Cada comando escribe la configuración MCP correspondiente en el directorio del agente.
 
