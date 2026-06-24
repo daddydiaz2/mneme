@@ -1144,6 +1144,12 @@ mneme/
 
 ---
 
+## Donaciones
+
+¿Te gusta mneme? Invitame un café ☕
+
+[![Donate](https://img.shields.io/badge/Donate-PayPal-blue)](https://www.paypal.com/donate/?hosted_button_id=VDP69Z8GNTAR2)
+
 ## Licencia
 
 **MIT** — ver [LICENSE](LICENSE).
