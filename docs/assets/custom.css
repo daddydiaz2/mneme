@@ -1,0 +1,9 @@
+/* mneme docs custom styles */
+:root {
+  --md-primary-fg-color: #3949ab;
+  --md-accent-fg-color: #7c4dff;
+}
+
+.md-header {
+  background: linear-gradient(135deg, #3949ab 0%, #7c4dff 100%);
+}

@@ -1,0 +1,56 @@
+site_name: mneme ecosystem
+site_description: Persistent memory for AI agents — mneme, mneme-ai, mneme-guardian
+site_url: https://daddydiaz2.github.io/mneme
+repo_url: https://github.com/daddydiaz2/mneme
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: indigo
+    accent: deep purple
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.indexes
+    - content.code.copy
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - md_in_html
+
+nav:
+  - Home: index.md
+  - Ecosystem: ecosystem.md
+  - mneme (brain):
+    - Overview: mneme/index.md
+    - Installation: mneme/installation.md
+    - Quick Start: mneme/quickstart.md
+    - CLI Reference: mneme/cli.md
+    - MCP Tools: mneme/mcp-tools.md
+    - Agent Setup: mneme/setup.md
+    - Encryption: mneme/encryption.md
+    - Architecture: mneme/architecture.md
+  - mneme-ai (configurator):
+    - Overview: mneme-ai/index.md
+    - Installation: mneme-ai/installation.md
+    - Commands: mneme-ai/commands.md
+    - Supported Agents: mneme-ai/agents.md
+  - mneme-guardian (review):
+    - Overview: mneme-guardian/index.md
+    - Installation: mneme-guardian/installation.md
+    - Commands: mneme-guardian/commands.md
+    - Providers: mneme-guardian/providers.md
+  - Contributing: contributing.md
+
+extra_css:
+  - assets/custom.css
