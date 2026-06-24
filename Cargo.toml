@@ -3,9 +3,13 @@ name = "mneme"
 version = "0.2.0"
 edition = "2021"
 authors = ["mneme contributors"]
-description = "Persistent memory system for AI coding agents"
+description = "Persistent memory system for AI coding agents — Rust + SQLite + FTS5 + MCP. Hybrid search, age encryption, CRDT P2P sync, WASM plugins, TUI with knowledge graph."
 license = "MIT"
-repository = "https://github.com/tu-usuario/mneme"
+repository = "https://github.com/daddydiaz2/mneme"
+homepage = "https://github.com/daddydiaz2/mneme"
+documentation = "https://github.com/daddydiaz2/mneme#readme"
+keywords = ["ai", "agent", "mcp", "memory", "sqlite"]
+categories = ["command-line-utilities", "database"]
 
 [[bin]]
 name = "mneme"
