@@ -1314,23 +1314,35 @@ fn setup_opencode() -> crate::error::Result<()> {
     let opencode_dir = config_dir.join("opencode");
     std::fs::create_dir_all(&opencode_dir)?;
 
-    let config_path = opencode_dir.join("config.json");
+    // OpenCode reads opencode.json (not config.json)
+    let config_path = opencode_dir.join("opencode.json");
     let mut config: serde_json::Value = if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)?;
-        serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
+        serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
     } else {
-        serde_json::json!({})
+        // Legacy: check if config.json exists (old format) and migrate
+        let legacy_path = opencode_dir.join("config.json");
+        if legacy_path.exists() {
+            let content = std::fs::read_to_string(&legacy_path)?;
+            let cfg = serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
+            std::fs::remove_file(&legacy_path)?;
+            cfg
+        } else {
+            serde_json::json!({})
+        }
     };
 
-    let mcp_config = serde_json::json!({
-        "mneme": {
-            "command": "mneme",
-            "args": ["mcp"],
-            "env": {}
-        }
-    });
+    if !config.is_object() {
+        config = serde_json::json!({});
+    }
+    if config.get("mcp").map_or(true, |v| !v.is_object()) {
+        config["mcp"] = serde_json::json!({});
+    }
 
-    config["mcp"] = mcp_config;
+    config["mcp"]["mneme"] = serde_json::json!({
+        "command": ["mneme", "mcp"],
+        "type": "local"
+    });
 
     let content = serde_json::to_string_pretty(&config)?;
     std::fs::write(&config_path, content)?;
