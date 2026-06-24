@@ -1341,7 +1341,8 @@ fn setup_opencode() -> crate::error::Result<()> {
 
     config["mcp"]["mneme"] = serde_json::json!({
         "command": ["mneme", "mcp"],
-        "type": "local"
+        "type": "local",
+        "enabled": true
     });
 
     let content = serde_json::to_string_pretty(&config)?;
