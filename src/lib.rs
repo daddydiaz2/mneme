@@ -15,6 +15,7 @@ pub mod plugins;
 pub mod store;
 pub mod sync;
 pub mod tui;
+pub mod update;
 pub mod watch;
 
 pub use error::{MnemeError, Result};

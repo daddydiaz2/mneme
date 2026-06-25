@@ -8,7 +8,7 @@
 ![SQLite](https://img.shields.io/badge/SQLite-FTS5-003B57?logo=sqlite&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-64_tools-6C3483?logo=anthropic&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
-[![crates.io](https://img.shields.io/badge/crates.io-mneme--brain-orange)](https://crates.io/crates/mneme-brain)
+[![Crates.io](https://img.shields.io/crates/v/mneme-brain)](https://crates.io/crates/mneme-brain)
 
 **Persistent memory for AI coding agents** — hybrid search (FTS5 + fuzzy + ONNX), age/SSH encryption, CRDT P2P sync, interactive TUI with knowledge graph, WASM plugins, MCP server and HTTP API.
 
@@ -19,16 +19,35 @@
 ## Install
 
 ```bash
-# crates.io
 cargo install mneme-brain
-
-# Homebrew
-brew tap daddydiaz2/homebrew-tap
-brew install mneme
-
-# Docker
-docker build -t mneme:latest https://github.com/daddydiaz2/mneme.git
 ```
+
+## Quick Start
+
+```bash
+# Save a memory
+mneme save --project my-project --title "JWT auth middleware" --type decision
+
+# Hybrid search (FTS5 + fuzzy + semantic)
+mneme search "JWT auth" --project my-project
+
+# List memories
+mneme list --project my-project
+
+# Launch the TUI
+mneme tui
+
+# Start MCP server for AI agents
+mneme mcp
+```
+
+## Ecosystem
+
+| Project | Description |
+|---------|-------------|
+| **mneme-brain** | Persistent memory core — CLI, TUI, MCP server, HTTP API, SQLite + FTS5, hybrid search, encryption, CRDT sync, WASM plugins |
+| **mneme-ai** | AI-powered features — LLM-based conflict detection, passive capture, auto-summarization, cross-encoder reranking |
+| **mneme-guardian** | Governance and compliance — audit trails, policy enforcement, RBAC, cloud sync infrastructure |
 
 ---
 

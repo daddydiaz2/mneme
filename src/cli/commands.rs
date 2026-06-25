@@ -434,6 +434,8 @@ pub enum Commands {
         #[command(subcommand)]
         cmd: KeysCommands,
     },
+    /// Show version and check for updates
+    Version,
 }
 
 /// Comandos de claves de encriptación.
@@ -1315,6 +1317,10 @@ pub fn run_command(
         }
         Commands::Watch { .. } => {
             output::print_warning("Use 'mneme watch' via the async runtime, not sync.");
+        }
+        Commands::Version => {
+            println!("mneme v{}", env!("CARGO_PKG_VERSION"));
+            crate::update::print_update_status("mneme-brain", env!("CARGO_PKG_VERSION"));
         }
     }
 

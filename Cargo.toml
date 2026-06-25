@@ -83,6 +83,7 @@ reqwest = { version = "0.12", features = [
 ], default-features = false }
 hostname = "0.4"
 hex = "0.4"
+ureq = { version = "3", features = ["json"] }
 
 [dev-dependencies]
 tempfile = "3"
