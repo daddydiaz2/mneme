@@ -66,6 +66,11 @@ fn handle_key_inner(app: &mut App, key: KeyEvent) {
         // ── HELP ──
         KeyCode::Char('?') => app.show_help = !app.show_help,
 
+        // ── PROJECTS ──
+        KeyCode::Char('p') => {
+            app.show_projects = !app.show_projects;
+        }
+
         // ── ACTIONS ──
         KeyCode::Tab => {
             app.load_graph();

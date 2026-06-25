@@ -107,6 +107,37 @@ pub fn render(frame: &mut Frame, app: &App) {
         );
     }
 
+    // ── PROJECT DASHBOARD ──
+    if app.show_projects && app.active_panel != 2 {
+        let a = centered(70, 20, r);
+        frame.render_widget(Clear, a);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(CYN))
+            .style(Style::default().bg(BG))
+            .title("📊 Projects Dashboard");
+        let inner = block.inner(a);
+        frame.render_widget(block, a);
+
+        let mut lines = vec![
+            Line::from(Span::styled(format!("Total: {} projects, {} memories", app.projects_list.len(), app.total_mems),
+                Style::default().fg(HDR).add_modifier(Modifier::BOLD))),
+            Line::from(""),
+        ];
+        for p in &app.projects_list {
+            let proj = if p.name.len() > 25 { format!("{}...", &p.name[..25]) } else { p.name.clone() };
+            lines.push(Line::from(format!("  {:<25}  {:>3} mems  {:>3} sessions  {}",
+                proj, p.memory_count, p.session_count,
+                p.last_activity.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default())));
+        }
+        if app.projects_list.is_empty() {
+            lines.push(Line::from("  No projects yet. Save a memory to get started."));
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("Press p to close", Style::default().fg(DIM))));
+        frame.render_widget(Paragraph::new(lines).style(Style::default().bg(BG)), inner);
+    }
+
     // ── SEARCH OVERLAY ──
     if app.active_panel == 2 {
         let a = centered(60, 3, r);

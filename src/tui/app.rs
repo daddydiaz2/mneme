@@ -66,6 +66,8 @@ pub struct App {
     pub temporal_data: Option<(Vec<Memory>, u8)>,
     pub active_panel: usize, // 0=lista, 1=detalle, 2=search
     pub total_mems: u32,
+    pub show_projects: bool,
+    pub projects_list: Vec<crate::store::memory::ProjectSummary>,
     pub db: Arc<Database>,
 }
 
@@ -92,6 +94,8 @@ impl App {
             temporal_data: None,
             active_panel: 0,
             total_mems: 0,
+            show_projects: false,
+            projects_list: vec![],
             db,
         }
     }
@@ -139,6 +143,7 @@ impl App {
         if let Ok(projects) = s.list_projects() {
             total_mems = projects.iter().map(|p| p.memory_count).sum();
         }
+        self.projects_list = s.list_projects().unwrap_or_default();
         self.total_mems = total_mems;
         self.sessions = self
             .db
