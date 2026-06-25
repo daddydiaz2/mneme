@@ -71,6 +71,7 @@ pub struct App {
 
 impl App {
     pub fn new(db: Arc<Database>, _settings: Arc<Settings>) -> Self {
+        // Show all projects by default, or infer if none
         let project = Settings::infer_project();
         Self {
             project,
@@ -99,20 +100,29 @@ impl App {
     pub fn load(&mut self) {
         let s = self.db.memories();
         if self.search.is_empty() {
-            self.memories = s
-                .list(&self.project, None, None, None, 500, 0)
-                .unwrap_or_default();
+            // Show memories from all projects
+            let mut all = Vec::new();
+            if let Ok(projects) = s.list_projects() {
+                for p in &projects {
+                    if let Ok(pmems) = s.list(&p.name, None, None, None, 100, 0) {
+                        all.extend(pmems);
+                    }
+                }
+            }
+            all.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            all.truncate(500);
+            self.memories = all;
         } else {
             let q = SearchQuery {
                 text: self.search.clone(),
-                project: Some(self.project.clone()),
+                project: None,
                 scope: None,
                 memory_type: None,
                 importance: None,
                 tags: vec![],
                 limit: 200,
                 include_snippet: false,
-                all_projects: false,
+                all_projects: true,
             };
             self.memories = s
                 .search(&q, &crate::store::search::SearchWeights::default(), None)
@@ -124,8 +134,12 @@ impl App {
         self.selected = self.selected.min(self.memories.len().saturating_sub(1));
         self.scroll = 0;
         self.detail_scroll = 0;
-        self.stats = s.stats(&self.project).ok();
-        self.total_mems = self.stats.as_ref().map(|s| s.total_memories).unwrap_or(0);
+        // Show total stats across all projects
+        let mut total_mems = self.memories.len() as u32;
+        if let Ok(projects) = s.list_projects() {
+            total_mems = projects.iter().map(|p| p.memory_count).sum();
+        }
+        self.total_mems = total_mems;
         self.sessions = self
             .db
             .sessions()
