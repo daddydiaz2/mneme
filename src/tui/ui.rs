@@ -57,6 +57,56 @@ pub fn render(frame: &mut Frame, app: &App) {
         Rect::new(0, r.height.saturating_sub(1), r.width, 1),
     );
 
+    // ── HELP OVERLAY ──
+    if app.show_help {
+        let a = centered(65, 22, r);
+        frame.render_widget(Clear, a);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(CYN))
+            .style(Style::default().bg(BG))
+            .title(" mneme TUI Help ");
+        let inner = block.inner(a);
+        frame.render_widget(block, a);
+
+        let help_lines = vec![
+            Line::from(Span::styled(
+                "Navigation",
+                Style::default().fg(CYN).add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  j/k or ↑↓    Navigate list"),
+            Line::from("  g           First item    G   Last item"),
+            Line::from("  J/K         Page down/up"),
+            Line::from("  →           Open detail   ←  Back to list"),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Search & Actions",
+                Style::default().fg(CYN).add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  /           Start search  Enter  Execute search"),
+            Line::from("  r           Refresh list  d   Delete selected"),
+            Line::from("  Tab         Knowledge graph view"),
+            Line::from("  e           Entity graph  t   Temporal view"),
+            Line::from("  [] or ←→    Switch detail tabs"),
+            Line::from("  z/Z         Scroll detail content"),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Global",
+                Style::default().fg(CYN).add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  ?           Toggle this help"),
+            Line::from("  q or Ctrl+C Quit"),
+            Line::from(""),
+            Line::from(Span::styled("Press ? to close", Style::default().fg(DIM))),
+        ];
+        frame.render_widget(
+            Paragraph::new(help_lines)
+                .style(Style::default().bg(BG))
+                .block(Block::default()),
+            inner,
+        );
+    }
+
     // ── SEARCH OVERLAY ──
     if app.active_panel == 2 {
         let a = centered(60, 3, r);

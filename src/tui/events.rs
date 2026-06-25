@@ -63,6 +63,9 @@ fn handle_key_inner(app: &mut App, key: KeyEvent) {
         KeyCode::Char('z') if app.active_panel == 1 => app.dscroll_down(),
         KeyCode::Char('Z') if app.active_panel == 1 => app.dscroll_up(),
 
+        // ── HELP ──
+        KeyCode::Char('?') => app.show_help = !app.show_help,
+
         // ── ACTIONS ──
         KeyCode::Tab => {
             app.load_graph();
