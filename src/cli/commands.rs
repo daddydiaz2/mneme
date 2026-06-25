@@ -96,6 +96,9 @@ pub enum Commands {
         /// Filtrar por proyecto.
         #[arg(long, short = 'p', env = "MNEME_PROJECT")]
         project: Option<String>,
+        /// Mostrar memorias de todos los proyectos.
+        #[arg(long, short = 'a')]
+        all: bool,
         /// Filtrar por tipo.
         #[arg(long, short = 't')]
         r#type: Option<String>,
@@ -648,21 +651,30 @@ pub fn run_command(
         }
         Commands::List {
             project,
+            all,
             r#type,
             limit,
             json,
         } => {
-            let project = project.unwrap_or_else(Settings::infer_project);
-            let memory_type = r#type.as_deref().map(str::parse).transpose()?;
-
-            let memories =
-                db.memories()
-                    .list(&project, memory_type.as_ref(), None, None, limit, 0)?;
-
-            if json {
-                println!("{}", serde_json::to_string_pretty(&memories)?);
+            let project_names: Vec<String> = if all {
+                db.memories().list_projects()?
+                    .into_iter().map(|p| p.name).collect()
             } else {
-                output::print_memory_list(&memories);
+                vec![project.unwrap_or_else(Settings::infer_project)]
+            };
+
+            for (i, pname) in project_names.iter().enumerate() {
+                if i > 0 { println!(); }
+                if all { println!("─── {} ───", pname); }
+                let memory_type = r#type.as_deref().map(str::parse).transpose()?;
+                let memories = db.memories()
+                    .list(pname, memory_type.as_ref(), None, None, limit, 0)?;
+
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&memories)?);
+                } else {
+                    output::print_memory_list(&memories);
+                }
             }
         }
         Commands::Delete { id, hard } => {
