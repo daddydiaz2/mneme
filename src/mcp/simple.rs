@@ -70,7 +70,22 @@ pub async fn run_simple_stdio(db: Arc<Database>) -> anyhow::Result<()> {
                 let arguments = params.and_then(|p| p.get("arguments")).and_then(|a| a.as_object()).cloned();
 
                 let args_map = arguments.unwrap_or_default();
-                let project = "default".to_string();
+                // Extract project from arguments if present, fallback to git/dir name
+                let project = args_map.get("project")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| {
+                        // Try to detect from git
+                        std::process::Command::new("git")
+                            .args(["rev-parse", "--show-toplevel"])
+                            .output()
+                            .ok()
+                            .and_then(|o| if o.status.success() {
+                                String::from_utf8(o.stdout).ok()
+                                    .map(|s| s.trim().split('/').last().unwrap_or("default").to_string())
+                            } else { None })
+                    })
+                    .unwrap_or_else(|| "default".to_string());
                 let result = crate::mcp::tools::execute_tool(
                     &db, tool_name, Some(args_map), &project, None, None,
                 ).await;
